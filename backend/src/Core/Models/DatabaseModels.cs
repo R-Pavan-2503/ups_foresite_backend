@@ -39,3 +39,31 @@ public class CommitBranch
     public Guid BranchId { get; set; }
     public DateTime CreatedAt { get; set; }
 }
+
+public class Commit
+{
+    public Guid Id { get; set; }
+    public Guid RepositoryId { get; set; }
+    public string Sha { get; set; } = string.Empty;
+    public string? Message { get; set; }
+    public string? AuthorName { get; set; }
+    public string? AuthorEmail { get; set; }
+    public Guid? AuthorUserId { get; set; }  // Link to users table
+    public DateTime CommittedAt { get; set; }
+}
+
+public class RepositoryFile
+{
+    public Guid Id { get; set; }
+    public Guid RepositoryId { get; set; }
+    public string FilePath { get; set; } = string.Empty;
+    public int? TotalLines { get; set; }
+}
+
+public class FileChange
+{
+    public Guid CommitId { get; set; }
+    public Guid FileId { get; set; }
+    public int? Additions { get; set; }
+    public int? Deletions { get; set; }
+}
