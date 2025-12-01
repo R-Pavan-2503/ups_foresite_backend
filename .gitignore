@@ -1,0 +1,110 @@
+##############################
+# GLOBAL IGNORE
+##############################
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VS Code settings
+.vscode/
+.history/
+
+# Environment files
+.env
+.env.*
+!env.example   # keep example if needed, remove line if you want to ignore it too
+
+# Secrets folder
+secrets/
+Secrets/
+secret/
+Secret/
+
+##############################
+# BACKEND (.NET)
+##############################
+
+# Build output
+bin/
+obj/
+
+# .NET generated files
+*.dll
+*.exe
+*.pdb
+*.cache
+*.log
+*.temp
+*.db
+*.sqlite
+*.mdb
+
+# Web build artifacts
+wwwroot/dist/
+wwwroot/lib/
+
+# User-specific files
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet Packages
+*.nupkg
+packages/
+*.snupkg
+
+# ASP.NET scaffolding
+ScaffoldingReadMe.txt
+
+##############################
+# FRONTEND (Node, React, Next, etc.)
+##############################
+
+# Node modules
+node_modules/
+
+# Lockfiles (optional)
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Production build
+dist/
+build/
+.next/
+out/
+coverage/
+
+##############################
+# Logs
+##############################
+*.log
+logs/
+debug.log
+
+##############################
+# System backup / temp
+##############################
+*.tmp
+*.bak
+*.swp
+*.swo
+
+##############################
+# IDE / TOOLING
+##############################
+
+# JetBrains
+.idea/
+*.iml
+
+# Visual Studio
+.vs/
+
+# Rider
+.ReSharper*/
+*_ReSharper*/
