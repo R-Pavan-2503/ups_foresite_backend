@@ -55,5 +55,17 @@ public interface IDatabaseService
     Task<List<FileChange>> GetFileChangesByCommit(Guid commitId);
     Task<List<FileChange>> GetFileChangesByFile(Guid fileId);
 
+    // Embeddings
+    Task<CodeEmbedding> CreateEmbedding(CodeEmbedding embedding);
+    Task<List<CodeEmbedding>> GetEmbeddingsByFile(Guid fileId);
+    Task<List<(RepositoryFile File, double Similarity)>> FindSimilarFiles(float[] embedding, Guid repositoryId, Guid excludeFileId, int limit = 10);
 
+    // Dependencies
+    Task CreateDependency(Dependency dependency);
+    Task<List<Dependency>> GetDependenciesForFile(Guid fileId);
+    Task<List<Dependency>> GetDependentsForFile(Guid fileId);
+
+    // File Ownership
+    Task UpsertFileOwnership(FileOwnership ownership);
+    Task<List<FileOwnership>> GetFileOwnership(Guid fileId);
 }

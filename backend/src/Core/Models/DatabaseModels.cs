@@ -67,3 +67,28 @@ public class FileChange
     public int? Additions { get; set; }
     public int? Deletions { get; set; }
 }
+
+public class FileOwnership
+{
+    public Guid FileId { get; set; }
+    public string AuthorName { get; set; } = string.Empty;
+    public decimal? SemanticScore { get; set; }
+    public DateTime LastUpdated { get; set; }
+}
+
+public class Dependency
+{
+    public Guid SourceFileId { get; set; }
+    public Guid TargetFileId { get; set; }
+    public string? DependencyType { get; set; }
+    public int? Strength { get; set; }
+}
+
+public class CodeEmbedding
+{
+    public Guid Id { get; set; }
+    public Guid FileId { get; set; }
+    public float[]? Embedding { get; set; }
+    public string? ChunkContent { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
