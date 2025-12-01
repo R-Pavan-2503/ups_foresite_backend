@@ -36,5 +36,24 @@ public interface IDatabaseService
     Task LinkCommitToBranch(Guid commitId, Guid branchId);
     Task<List<Guid>> GetBranchIdsForCommit(Guid commitId);
 
+    // Commits
+    Task<Commit> CreateCommit(Commit commit);
+    Task<List<Commit>> GetCommitsByRepository(Guid repositoryId);
+    Task<List<Commit>> GetCommitsByBranch(Guid repositoryId, string branchName);
+    Task<Commit?> GetCommitById(Guid id);
+    Task<Commit?> GetCommitBySha(Guid repositoryId, string sha);
+
+    // Files
+    Task<RepositoryFile?> GetFileByPath(Guid repositoryId, string filePath);
+    Task<RepositoryFile> CreateFile(RepositoryFile file);
+    Task<List<RepositoryFile>> GetFilesByRepository(Guid repositoryId);
+    Task<List<RepositoryFile>> GetFilesByBranch(Guid repositoryId, string branchName);
+    Task<RepositoryFile?> GetFileById(Guid fileId);
+
+    // File Changes
+    Task CreateFileChange(FileChange fileChange);
+    Task<List<FileChange>> GetFileChangesByCommit(Guid commitId);
+    Task<List<FileChange>> GetFileChangesByFile(Guid fileId);
+
 
 }
