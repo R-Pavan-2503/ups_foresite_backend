@@ -92,3 +92,34 @@ public class CodeEmbedding
     public string? ChunkContent { get; set; }
     public DateTime CreatedAt { get; set; }
 }
+
+public class PullRequest
+{
+    public Guid Id { get; set; }
+    public Guid RepositoryId { get; set; }
+    public int PrNumber { get; set; }
+    public string? Title { get; set; }
+    public string? State { get; set; }
+    public Guid? AuthorId { get; set; }
+}
+
+public class PrFileChanged
+{
+    public Guid PrId { get; set; }
+    public Guid FileId { get; set; }
+}
+
+public class Review
+{
+    public Guid Id { get; set; }
+    public Guid PrId { get; set; }
+    public Guid? ReviewerId { get; set; }
+    public string? State { get; set; }
+}
+
+public class WebhookQueueItem
+{
+    public long Id { get; set; }
+    public string Payload { get; set; } = string.Empty;
+    public string Status { get; set; } = "pending";
+}
