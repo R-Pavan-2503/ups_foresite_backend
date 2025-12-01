@@ -68,4 +68,21 @@ public interface IDatabaseService
     // File Ownership
     Task UpsertFileOwnership(FileOwnership ownership);
     Task<List<FileOwnership>> GetFileOwnership(Guid fileId);
+
+     // Pull Requests
+    Task<PullRequest?> GetPullRequestByNumber(Guid repositoryId, int prNumber);
+    Task<PullRequest> CreatePullRequest(PullRequest pr);
+    Task<List<PullRequest>> GetOpenPullRequests(Guid repositoryId);
+    Task<List<PullRequest>> GetAllPullRequests(Guid repositoryId);
+    Task UpdatePullRequestState(Guid prId, string state);
+    Task UpdatePullRequestTitle(Guid prId, string title);
+
+    // PR Files
+    Task CreatePrFileChanged(PrFileChanged prFile);
+    Task<List<RepositoryFile>> GetPrFiles(Guid prId);
+
+    // Webhook Queue
+    Task<long> EnqueueWebhook(string payload);
+    Task<WebhookQueueItem?> GetNextPendingWebhook();
+    Task UpdateWebhookStatus(long id, string status);
 }
