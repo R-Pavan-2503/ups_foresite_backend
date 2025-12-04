@@ -38,3 +38,65 @@ public class RepositoryService : IRepositoryService
 
         return repoPath;
     }
+
+    public LibGit2Sharp.Repository GetRepository(string owner, string repoName)
+    {
+        var repoPath = Path.Combine(_cloneBasePath, $"{owner}_{repoName}.git");
+        return new LibGit2Sharp.Repository(repoPath);
+    }
+
+    public string? GetFileContentAtCommit(LibGit2Sharp.Repository repo, string commitSha, string filePath)
+    {
+        var commit = repo.Lookup<LibGit2Sharp.Commit>(commitSha);
+        if (commit == null) return null;
+
+        var entry = commit[filePath];
+        if (entry == null || entry.TargetType != TreeEntryTargetType.Blob)
+            return null;
+
+        var blob = (Blob)entry.Target;
+        return blob.GetContentText();
+    }
+
+    public List<LibGit2Sharp.Commit> GetAllCommits(LibGit2Sharp.Repository repo)
+    {
+        return repo.Commits.QueryBy(new CommitFilter
+        {
+            SortBy = CommitSortStrategies.Topological | CommitSortStrategies.Reverse
+        }).ToList();
+    }
+
+    public List<string> GetChangedFiles(LibGit2Sharp.Repository repo, LibGit2Sharp.Commit commit)
+    {
+        if (commit.Parents.Any())
+        {
+            var parent = commit.Parents.First();
+            var changes = repo.Diff.Compare<TreeChanges>(parent.Tree, commit.Tree);
+            return changes.Select(c => c.Path).ToList();
+        }
+
+        // First commit - all files are new - recursively enumerate all blobs
+        var allFiles = new List<string>();
+        EnumerateTreeRecursive(commit.Tree, "", allFiles);
+        return allFiles;
+    }
+
+    private void EnumerateTreeRecursive(Tree tree, string basePath, List<string> files)
+    {
+        foreach (var entry in tree)
+        {
+            var fullPath = string.IsNullOrEmpty(basePath) ? entry.Name : $"{basePath}/{entry.Name}";
+            
+            if (entry.TargetType == TreeEntryTargetType.Blob)
+            {
+                // It's a file
+                files.Add(fullPath);
+            }
+            else if (entry.TargetType == TreeEntryTargetType.Tree)
+            {
+                // It's a directory - recurse into it
+                var subTree = (Tree)entry.Target;
+                EnumerateTreeRecursive(subTree, fullPath, files);
+            }
+        }
+    }
