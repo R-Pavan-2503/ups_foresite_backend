@@ -100,3 +100,77 @@ public class RepositoryService : IRepositoryService
             }
         }
     }
+
+public async Task FetchRepository(string owner, string repoName)
+    {
+        await Task.Run(() =>
+        {
+            using var repo = GetRepository(owner, repoName);
+            var remote = repo.Network.Remotes["origin"];
+            
+            // Force update local refs to match remote (mirror behavior)
+            // This ensures repo.Branches["main"] points to the latest commit
+            var refSpecs = new[] { "+refs/heads/*:refs/heads/*" };
+            
+            var fetchOptions = new FetchOptions
+            {
+                Prune = true
+            };
+            
+            Commands.Fetch(repo, remote.Name, refSpecs, fetchOptions, "fetch");
+
+            // Manual Prune: Ensure local remote-tracking branches match remote exactly
+            var remoteRefs = repo.Network.ListReferences(remote).Select(r => r.CanonicalName).ToHashSet();
+            var localBranches = repo.Branches.ToList();
+
+            foreach (var branch in localBranches)
+            {
+                // Check for stale remote-tracking branches (e.g. refs/remotes/origin/deleted-branch)
+                if (branch.IsRemote && branch.Reference.CanonicalName.StartsWith("refs/remotes/origin/"))
+                {
+                    // Map refs/remotes/origin/branch -> refs/heads/branch
+                    var expectedRemoteRef = branch.Reference.CanonicalName.Replace("refs/remotes/origin/", "refs/heads/");
+                    
+                    // If the remote doesn't have this ref anymore, delete our local tracking branch
+                    if (!remoteRefs.Contains(expectedRemoteRef) && expectedRemoteRef != "refs/heads/HEAD")
+                    {
+                        repo.Branches.Remove(branch);
+                    }
+                }
+            }
+        });
+    }
+
+    public string GetLanguageFromPath(string filePath)
+    {
+        var ext = Path.GetExtension(filePath).ToLower();
+        return ext switch
+        {
+            ".js" => "javascript",
+            ".jsx" => "javascript",
+            ".ts" => "typescript",
+            ".tsx" => "typescript",
+            ".py" => "python",
+            ".go" => "go",
+            ".java" => "java",
+            ".cs" => "csharp",
+            ".cpp" or ".cc" or ".cxx" => "cpp",
+            ".c" or ".h" => "c",
+            ".rs" => "rust",
+            ".rb" => "ruby",
+            ".php" => "php",
+            _ => "unknown"
+        };
+    }
+
+    public List<string> GetAllBranches(LibGit2Sharp.Repository repo)
+    {
+        return repo.Branches
+            .Where(b => !b.IsRemote || b.FriendlyName.StartsWith("origin/"))
+            .Select(b => b.FriendlyName.Replace("origin/", ""))
+            .Distinct()
+            .Where(name => name != "HEAD") // Filter out HEAD symbolic reference
+            .OrderBy(name => name != "main" && name != "master") // Put main/master first
+            .ThenBy(name => name)
+            .ToList();
+    }
