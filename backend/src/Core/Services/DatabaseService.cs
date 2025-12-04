@@ -672,4 +672,137 @@ public class DatabaseService : IDatabaseService
         }
         return null;
     }
+
+
+    //files
+    public async Task<RepositoryFile?> GetFileByPath(Guid repositoryId, string filePath)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, file_path, total_lines FROM repository_files WHERE repository_id = @repoId AND file_path = @path",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+        cmd.Parameters.AddWithValue("path", filePath);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new RepositoryFile
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                FilePath = reader.GetString(2),
+                TotalLines = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            };
+        }
+        return null;
+    }
+
+    public async Task<RepositoryFile> CreateFile(RepositoryFile file)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "INSERT INTO repository_files (repository_id, file_path, total_lines) VALUES (@repoId, @path, @lines) RETURNING id",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", file.RepositoryId);
+        cmd.Parameters.AddWithValue("path", file.FilePath);
+        cmd.Parameters.AddWithValue("lines", (object?)file.TotalLines ?? DBNull.Value);
+
+        file.Id = (Guid)(await cmd.ExecuteScalarAsync())!;
+        return file;
+    }
+
+    public async Task<List<RepositoryFile>> GetFilesByRepository(Guid repositoryId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, file_path, total_lines FROM repository_files WHERE repository_id = @repoId ORDER BY file_path",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+
+        var files = new List<RepositoryFile>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            files.Add(new RepositoryFile
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                FilePath = reader.GetString(2),
+                TotalLines = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            });
+        }
+        return files;
+    }
+
+    public async Task<List<RepositoryFile>> GetFilesByBranch(Guid repositoryId, string branchName)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        // Get files that were modified in commits on this branch using junction table
+        using var cmd = new NpgsqlCommand(
+            @"SELECT DISTINCT rf.id, rf.repository_id, rf.file_path, rf.total_lines 
+              FROM repository_files rf 
+              JOIN file_changes fc ON rf.id = fc.file_id 
+              JOIN commits c ON fc.commit_id = c.id 
+              JOIN commit_branches cb ON c.id = cb.commit_id
+              JOIN branches b ON cb.branch_id = b.id
+              WHERE rf.repository_id = @repoId AND b.name = @branchName 
+              ORDER BY rf.file_path",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+        cmd.Parameters.AddWithValue("branchName", branchName);
+
+        var files = new List<RepositoryFile>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            files.Add(new RepositoryFile
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                FilePath = reader.GetString(2),
+                TotalLines = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            });
+        }
+        return files;
+    }
+
+    public async Task<RepositoryFile?> GetFileById(Guid fileId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, file_path, total_lines FROM repository_files WHERE id = @id",
+            conn);
+
+        cmd.Parameters.AddWithValue("id", fileId);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new RepositoryFile
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                FilePath = reader.GetString(2),
+                TotalLines = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            };
+        }
+        return null;
+    }
 }
+
+
