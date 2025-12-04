@@ -38,7 +38,7 @@ public class GitHubService : IGitHubService
     {
         using var client = new HttpClient();
         var request = new HttpRequestMessage(HttpMethod.Post, "https://github.com/login/oauth/access_token");
-        
+
         var content = new FormUrlEncodedContent(new[]
         {
             new KeyValuePair<string, string>("client_id", _settings.ClientId),
@@ -51,8 +51,68 @@ public class GitHubService : IGitHubService
 
         var response = await client.SendAsync(request);
         var responseBody = await response.Content.ReadAsStringAsync();
-        
+
         var json = System.Text.Json.JsonDocument.Parse(responseBody);
         return json.RootElement.GetProperty("access_token").GetString() ?? throw new Exception("No access token received");
+    }
+
+    public async Task<GitHubUserDto> GetAuthenticatedUser(string accessToken)
+    {
+        var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+        {
+            Credentials = new Credentials(accessToken)
+        };
+
+        var user = await client.User.Current();
+
+        return new GitHubUserDto
+        {
+            Id = user.Id,
+            Login = user.Login,
+            Email = user.Email,
+            AvatarUrl = user.AvatarUrl
+        };
+    }
+
+    public async Task<string?> GetUserEmails(string accessToken)
+    {
+        var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+        {
+            Credentials = new Credentials(accessToken)
+        };
+
+        try
+        {
+            var emails = await client.User.Email.GetAll();
+            // Get the primary email, or the first verified email
+            var primaryEmail = emails.FirstOrDefault(e => e.Primary && e.Verified);
+            if (primaryEmail != null) return primaryEmail.Email;
+
+            var verifiedEmail = emails.FirstOrDefault(e => e.Verified);
+            if (verifiedEmail != null) return verifiedEmail.Email;
+
+            return emails.FirstOrDefault()?.Email;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // Repositories
+    public async Task<List<Octokit.Repository>> GetUserRepositories(string accessToken)
+    {
+        var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+        {
+            Credentials = new Credentials(accessToken)
+        };
+
+        var repos = await client.Repository.GetAllForCurrent();
+        return repos.ToList();
+    }
+
+    public async Task<Octokit.Repository> GetRepository(string owner, string repo)
+    {
+        return await _client.Repository.Get(owner, repo);
     }
 }
