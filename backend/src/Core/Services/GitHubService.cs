@@ -115,4 +115,64 @@ public class GitHubService : IGitHubService
     {
         return await _client.Repository.Get(owner, repo);
     }
+    // Commits
+    public async Task<IReadOnlyList<GitHubCommit>> GetCommits(string owner, string repo)
+    {
+        var request = new CommitRequest { };
+        return await _client.Repository.Commit.GetAll(owner, repo, request);
+    }
+
+    public async Task<GitHubCommit> GetCommit(string owner, string repo, string sha, string? accessToken = null)
+    {
+        if (!string.IsNullOrEmpty(accessToken))
+        {
+            var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+            {
+                Credentials = new Credentials(accessToken)
+            };
+            return await client.Repository.Commit.Get(owner, repo, sha);
+        }
+
+        try
+        {
+            // Try unauthenticated first
+            return await _client.Repository.Commit.Get(owner, repo, sha);
+        }
+        catch (Exception)
+        {
+            // Fallback to authenticated
+            var installationToken = await GetInstallationTokenForRepo(owner, repo);
+            var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+            {
+                Credentials = new Credentials(installationToken)
+            };
+            return await client.Repository.Commit.Get(owner, repo, sha);
+        }
+    }
+
+    public async Task<GitHubCommitAuthor?> GetCommitAuthor(string owner, string repo, string sha, string? accessToken = null)
+    {
+        try
+        {
+            var commit = await GetCommit(owner, repo, sha, accessToken);
+            
+            // Extract author info from commit.Author (GitHub user)
+            if (commit?.Author != null)
+            {
+                return new GitHubCommitAuthor
+                {
+                    Login = commit.Author.Login,
+                    Id = commit.Author.Id,
+                    AvatarUrl = commit.Author.AvatarUrl
+                };
+            }
+            return null;
+        }
+        catch (Exception)
+        {
+            // Author not found or API error
+            return null;
+        }
+    }
+
 }
