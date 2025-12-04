@@ -366,4 +366,310 @@ public class DatabaseService : IDatabaseService
         }
         return repositories;
     }
+
+    // Branches
+    public async Task<Branch> CreateBranch(Branch branch)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "INSERT INTO branches (repository_id, name, head_commit_sha, is_default, created_at, updated_at) VALUES (@repoId, @name, @headSha, @isDefault, @created, @updated) RETURNING id",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", branch.RepositoryId);
+        cmd.Parameters.AddWithValue("name", branch.Name);
+        cmd.Parameters.AddWithValue("headSha", (object?)branch.HeadCommitSha ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("isDefault", branch.IsDefault);
+        cmd.Parameters.AddWithValue("created", DateTime.UtcNow);
+        cmd.Parameters.AddWithValue("updated", DateTime.UtcNow);
+
+        branch.Id = (Guid)(await cmd.ExecuteScalarAsync())!;
+        return branch;
+    }
+
+    public async Task<List<Branch>> GetBranchesByRepository(Guid repositoryId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, name, head_commit_sha, is_default, created_at, updated_at FROM branches WHERE repository_id = @repoId ORDER BY is_default DESC, name",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+
+        var branches = new List<Branch>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            branches.Add(new Branch
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                Name = reader.GetString(2),
+                HeadCommitSha = reader.IsDBNull(3) ? null : reader.GetString(3),
+                IsDefault = reader.GetBoolean(4),
+                CreatedAt = reader.GetDateTime(5),
+                UpdatedAt = reader.GetDateTime(6)
+            });
+        }
+        return branches;
+    }
+
+    public async Task DeleteBranch(Guid branchId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand("DELETE FROM branches WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("id", branchId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<Branch?> GetDefaultBranch(Guid repositoryId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, name, head_commit_sha, is_default, created_at, updated_at FROM branches WHERE repository_id = @repoId AND is_default = TRUE LIMIT 1",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new Branch
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                Name = reader.GetString(2),
+                HeadCommitSha = reader.IsDBNull(3) ? null : reader.GetString(3),
+                IsDefault = reader.GetBoolean(4),
+                CreatedAt = reader.GetDateTime(5),
+                UpdatedAt = reader.GetDateTime(6)
+            };
+        }
+        return null;
+    }
+
+    public async Task<Branch?> GetBranchByName(Guid repositoryId, string branchName)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, name, head_commit_sha, is_default, created_at, updated_at FROM branches WHERE repository_id = @repoId AND name = @name",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+        cmd.Parameters.AddWithValue("name", branchName);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new Branch
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                Name = reader.GetString(2),
+                HeadCommitSha = reader.IsDBNull(3) ? null : reader.GetString(3),
+                IsDefault = reader.GetBoolean(4),
+                CreatedAt = reader.GetDateTime(5),
+                UpdatedAt = reader.GetDateTime(6)
+            };
+        }
+        return null;
+    }
+
+    public async Task UpdateBranchHead(Guid branchId, string commitSha)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand("UPDATE branches SET head_commit_sha = @headSha, updated_at = @updated WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("headSha", commitSha);
+        cmd.Parameters.AddWithValue("updated", DateTime.UtcNow);
+        cmd.Parameters.AddWithValue("id", branchId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // Commit-Branch Junction
+    public async Task LinkCommitToBranch(Guid commitId, Guid branchId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "INSERT INTO commit_branches (commit_id, branch_id, created_at) VALUES (@commitId, @branchId, @created) ON CONFLICT (commit_id, branch_id) DO NOTHING",
+            conn);
+
+        cmd.Parameters.AddWithValue("commitId", commitId);
+        cmd.Parameters.AddWithValue("branchId", branchId);
+        cmd.Parameters.AddWithValue("created", DateTime.UtcNow);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<Guid>> GetBranchIdsForCommit(Guid commitId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT branch_id FROM commit_branches WHERE commit_id = @commitId",
+            conn);
+
+        cmd.Parameters.AddWithValue("commitId", commitId);
+
+        var branchIds = new List<Guid>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            branchIds.Add(reader.GetGuid(0));
+        }
+        return branchIds;
+    }
+
+    // Commits
+    public async Task<Commit> CreateCommit(Commit commit)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "INSERT INTO commits (repository_id, sha, message, author_name, author_email, author_user_id, committed_at) VALUES (@repoId, @sha, @message, @authorName, @authorEmail, @authorUserId, @committedAt) RETURNING id",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", commit.RepositoryId);
+        cmd.Parameters.AddWithValue("sha", commit.Sha);
+        cmd.Parameters.AddWithValue("message", (object?)commit.Message ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("authorName", (object?)commit.AuthorName ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("authorEmail", (object?)commit.AuthorEmail ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("authorUserId", (object?)commit.AuthorUserId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("committedAt", commit.CommittedAt);
+
+        commit.Id = (Guid)(await cmd.ExecuteScalarAsync())!;
+        return commit;
+    }
+
+    public async Task<List<Commit>> GetCommitsByRepository(Guid repositoryId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, sha, message, author_name, author_email, committed_at FROM commits WHERE repository_id = @repoId ORDER BY committed_at DESC",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+
+        var commits = new List<Commit>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            commits.Add(new Commit
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                Sha = reader.GetString(2),
+                Message = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AuthorName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                AuthorEmail = reader.IsDBNull(5) ? null : reader.GetString(5),
+                CommittedAt = reader.GetDateTime(6)
+            });
+        }
+        return commits;
+    }
+
+    public async Task<List<Commit>> GetCommitsByBranch(Guid repositoryId, string branchName)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            @"SELECT DISTINCT c.id, c.repository_id, c.sha, c.message, c.author_name, c.author_email, c.committed_at 
+              FROM commits c 
+              JOIN commit_branches cb ON c.id = cb.commit_id 
+              JOIN branches b ON cb.branch_id = b.id 
+              WHERE c.repository_id = @repoId AND b.name = @branchName 
+              ORDER BY c.committed_at DESC",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+        cmd.Parameters.AddWithValue("branchName", branchName);
+
+        var commits = new List<Commit>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            commits.Add(new Commit
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                Sha = reader.GetString(2),
+                Message = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AuthorName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                AuthorEmail = reader.IsDBNull(5) ? null : reader.GetString(5),
+                CommittedAt = reader.GetDateTime(6)
+            });
+        }
+        return commits;
+    }
+
+    public async Task<Commit?> GetCommitById(Guid id)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, sha, message, committed_at FROM commits WHERE id = @id",
+            conn);
+
+        cmd.Parameters.AddWithValue("id", id);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new Commit
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                Sha = reader.GetString(2),
+                Message = reader.IsDBNull(3) ? null : reader.GetString(3),
+                CommittedAt = reader.GetDateTime(4)
+            };
+        }
+        return null;
+    }
+
+    public async Task<Commit?> GetCommitBySha(Guid repositoryId, string sha)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, sha, message, committed_at FROM commits WHERE repository_id = @repoId AND sha = @sha",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+        cmd.Parameters.AddWithValue("sha", sha);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new Commit
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                Sha = reader.GetString(2),
+                Message = reader.IsDBNull(3) ? null : reader.GetString(3),
+                CommittedAt = reader.GetDateTime(4)
+            };
+        }
+        return null;
+    }
 }
