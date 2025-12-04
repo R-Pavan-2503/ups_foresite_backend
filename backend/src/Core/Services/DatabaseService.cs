@@ -803,6 +803,166 @@ public class DatabaseService : IDatabaseService
         }
         return null;
     }
+
+    // File Changes
+    public async Task CreateFileChange(FileChange fileChange)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "INSERT INTO file_changes (commit_id, file_id, additions, deletions) VALUES (@commitId, @fileId, @additions, @deletions) ON CONFLICT (commit_id, file_id) DO UPDATE SET additions = @additions, deletions = @deletions",
+            conn);
+
+        cmd.Parameters.AddWithValue("commitId", fileChange.CommitId);
+        cmd.Parameters.AddWithValue("fileId", fileChange.FileId);
+        cmd.Parameters.AddWithValue("additions", (object?)fileChange.Additions ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("deletions", (object?)fileChange.Deletions ?? DBNull.Value);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<FileChange>> GetFileChangesByCommit(Guid commitId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT commit_id, file_id, additions, deletions FROM file_changes WHERE commit_id = @commitId",
+            conn);
+
+        cmd.Parameters.AddWithValue("commitId", commitId);
+
+        var changes = new List<FileChange>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            changes.Add(new FileChange
+            {
+                CommitId = reader.GetGuid(0),
+                FileId = reader.GetGuid(1),
+                Additions = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                Deletions = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            });
+        }
+        return changes;
+    }
+
+    public async Task<List<FileChange>> GetFileChangesByFile(Guid fileId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT commit_id, file_id, additions, deletions FROM file_changes WHERE file_id = @fileId",
+            conn);
+
+        cmd.Parameters.AddWithValue("fileId", fileId);
+
+        var changes = new List<FileChange>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            changes.Add(new FileChange
+            {
+                CommitId = reader.GetGuid(0),
+                FileId = reader.GetGuid(1),
+                Additions = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                Deletions = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            });
+        }
+        return changes;
+    }
+
+    // Embeddings
+    public async Task<CodeEmbedding> CreateEmbedding(CodeEmbedding embedding)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "INSERT INTO code_embeddings (file_id, embedding, chunk_content, created_at) VALUES (@fileId, @embedding::vector, @content, @createdAt) RETURNING id",
+            conn);
+
+        cmd.Parameters.AddWithValue("fileId", embedding.FileId);
+        cmd.Parameters.AddWithValue("embedding", $"[{string.Join(",", embedding.Embedding!)}]");
+        cmd.Parameters.AddWithValue("content", (object?)embedding.ChunkContent ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("createdAt", embedding.CreatedAt);
+
+        embedding.Id = (Guid)(await cmd.ExecuteScalarAsync())!;
+        return embedding;
+    }
+
+    public async Task<List<CodeEmbedding>> GetEmbeddingsByFile(Guid fileId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, file_id, embedding::text, chunk_content, created_at FROM code_embeddings WHERE file_id = @fileId",
+            conn);
+
+        cmd.Parameters.AddWithValue("fileId", fileId);
+
+        var embeddings = new List<CodeEmbedding>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var embeddingStr = reader.GetString(2).Trim('[', ']');
+            var embeddingValues = embeddingStr.Split(',').Select(float.Parse).ToArray();
+
+            embeddings.Add(new CodeEmbedding
+            {
+                Id = reader.GetGuid(0),
+                FileId = reader.GetGuid(1),
+                Embedding = embeddingValues,
+                ChunkContent = reader.IsDBNull(3) ? null : reader.GetString(3),
+                CreatedAt = reader.GetDateTime(4)
+            });
+        }
+        return embeddings;
+    }
+
+    public async Task<List<(RepositoryFile File, double Similarity)>> FindSimilarFiles(float[] embedding, Guid repositoryId, Guid excludeFileId, int limit = 10)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        // Use pgvector cosine similarity search
+        var embeddingStr = $"[{string.Join(",", embedding)}]";
+
+        using var cmd = new NpgsqlCommand(
+            @"SELECT rf.id, rf.repository_id, rf.file_path, rf.total_lines, 
+                     (1 - (ce.embedding <=> @embedding::vector)) as similarity
+              FROM code_embeddings ce
+              JOIN repository_files rf ON ce.file_id = rf.id
+              WHERE rf.repository_id = @repoId AND rf.id != @excludeFileId
+              GROUP BY rf.id, rf.repository_id, rf.file_path, rf.total_lines, ce.embedding
+              ORDER BY ce.embedding <=> @embedding::vector
+              LIMIT @limit",
+            conn);
+
+        cmd.Parameters.AddWithValue("embedding", embeddingStr);
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+        cmd.Parameters.AddWithValue("excludeFileId", excludeFileId);
+        cmd.Parameters.AddWithValue("limit", limit);
+
+        var results = new List<(RepositoryFile, double)>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var file = new RepositoryFile
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                FilePath = reader.GetString(2),
+                TotalLines = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            };
+            var similarity = reader.GetDouble(4);
+            results.Add((file, similarity));
+        }
+        return results;
+    }
 }
 
 
