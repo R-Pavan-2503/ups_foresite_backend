@@ -1354,6 +1354,55 @@ public class DatabaseService : IDatabaseService
 
         return conflicts.Values.OrderByDescending(c => c.OverlapCount).ToList();
     }
+
+    // Webhook Queue
+    public async Task<long> EnqueueWebhook(string payload)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "INSERT INTO webhook_queue (payload, status) VALUES (@payload::jsonb, 'pending') RETURNING id",
+            conn);
+
+        cmd.Parameters.AddWithValue("payload", payload);
+
+        return (long)(await cmd.ExecuteScalarAsync())!;
+    }
+
+    public async Task<WebhookQueueItem?> GetNextPendingWebhook()
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "UPDATE webhook_queue SET status = 'processing' WHERE id = (SELECT id FROM webhook_queue WHERE status = 'pending' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id, payload, status",
+            conn);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new WebhookQueueItem
+            {
+                Id = reader.GetInt64(0),
+                Payload = reader.GetString(1),
+                Status = reader.GetString(2)
+            };
+        }
+        return null;
+    }
+
+    public async Task UpdateWebhookStatus(long id, string status)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand("UPDATE webhook_queue SET status = @status WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("status", status);
+        cmd.Parameters.AddWithValue("id", id);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
 }
 
 
