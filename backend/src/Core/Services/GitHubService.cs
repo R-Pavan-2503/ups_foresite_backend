@@ -303,4 +303,107 @@ public class GitHubService : IGitHubService
         }
     }
 
+    // Status API (Merge Blocking)
+    public async Task CreateCommitStatus(string owner, string repo, string sha, string state, string description, string context)
+    {
+        var installationToken = await GetInstallationTokenForRepo(owner, repo);
+        var authenticatedClient = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+        {
+            Credentials = new Credentials(installationToken)
+        };
+
+        var newStatus = new NewCommitStatus
+        {
+            State = state switch
+            {
+                "success" => CommitState.Success,
+                "error" => CommitState.Error,
+                "failure" => CommitState.Failure,
+                "pending" => CommitState.Pending,
+                _ => CommitState.Pending
+            },
+            Description = description,
+            Context = context
+        };
+
+        await authenticatedClient.Repository.Status.Create(owner, repo, sha, newStatus);
+    }
+
+    // Installation Token
+    public async Task<string> GetInstallationToken(long installationId)
+    {
+        var jwt = GenerateJwt();
+        var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+        {
+            Credentials = new Credentials(jwt, AuthenticationType.Bearer)
+        };
+
+        var token = await client.GitHubApps.CreateInstallationToken(installationId);
+        return token.Token;
+    }
+
+    private async Task<string> GetInstallationTokenForRepo(string owner, string repo)
+    {
+        var jwt = GenerateJwt();
+        var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+        {
+            Credentials = new Credentials(jwt, AuthenticationType.Bearer)
+        };
+
+        var installation = await client.GitHubApps.GetRepositoryInstallationForCurrent(owner, repo);
+        return await GetInstallationToken(installation.Id);
+    }
+
+    /// <summary>
+    /// Generate JWT for GitHub App authentication.
+    /// 
+    /// CRITICAL: This method reads the private key from the path specified in settings.
+    /// The PEM file MUST exist at that location before running.
+    /// 
+    /// Algorithm:
+    /// 1. Read PEM file
+    /// 2. Parse RSA private key
+    /// 3. Create JWT with GitHub App claims
+    /// 4. Sign with RS256
+    /// </summary>
+    private string GenerateJwt()
+    {
+        var pemPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", _settings.PrivateKeyPath.TrimStart('/'));
+
+        if (!File.Exists(pemPath))
+        {
+            throw new FileNotFoundException($"GitHub App private key not found at: {pemPath}. Please ensure the PEM file is placed correctly.");
+        }
+
+        // Read PEM file
+        var pemContent = File.ReadAllText(pemPath);
+
+        // Create RSA instance and import from PEM
+        var rsa = RSA.Create();
+        rsa.ImportFromPem(pemContent);
+
+        // Create signing credentials
+        var signingCredentials = new SigningCredentials(
+            new RsaSecurityKey(rsa),
+            SecurityAlgorithms.RsaSha256
+        );
+
+        // Create claims for GitHub App JWT
+        var now = DateTimeOffset.UtcNow;
+        var claims = new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Iat, now.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
+            new Claim(JwtRegisteredClaimNames.Exp, now.AddMinutes(10).ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
+            new Claim(JwtRegisteredClaimNames.Iss, _settings.AppId)
+        };
+
+        // Create JWT token
+        var token = new JwtSecurityToken(
+            claims: claims,
+            signingCredentials: signingCredentials
+        );
+
+        // Return signed JWT string
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
 }
