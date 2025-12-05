@@ -963,6 +963,397 @@ public class DatabaseService : IDatabaseService
         }
         return results;
     }
+
+    // Dependencies
+    public async Task CreateDependency(Dependency dependency)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "INSERT INTO dependencies (source_file_id, target_file_id, dependency_type, strength) VALUES (@sourceId, @targetId, @type, @strength) ON CONFLICT (source_file_id, target_file_id) DO UPDATE SET dependency_type = @type, strength = @strength",
+            conn);
+
+        cmd.Parameters.AddWithValue("sourceId", dependency.SourceFileId);
+        cmd.Parameters.AddWithValue("targetId", dependency.TargetFileId);
+        cmd.Parameters.AddWithValue("type", (object?)dependency.DependencyType ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("strength", (object?)dependency.Strength ?? DBNull.Value);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<Dependency>> GetDependenciesForFile(Guid fileId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT source_file_id, target_file_id, dependency_type, strength FROM dependencies WHERE source_file_id = @fileId",
+            conn);
+
+        cmd.Parameters.AddWithValue("fileId", fileId);
+
+        var dependencies = new List<Dependency>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            dependencies.Add(new Dependency
+            {
+                SourceFileId = reader.GetGuid(0),
+                TargetFileId = reader.GetGuid(1),
+                DependencyType = reader.IsDBNull(2) ? null : reader.GetString(2),
+                Strength = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            });
+        }
+        return dependencies;
+    }
+
+    public async Task<List<Dependency>> GetDependentsForFile(Guid fileId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT source_file_id, target_file_id, dependency_type, strength FROM dependencies WHERE target_file_id = @fileId",
+            conn);
+
+        cmd.Parameters.AddWithValue("fileId", fileId);
+
+        var dependencies = new List<Dependency>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            dependencies.Add(new Dependency
+            {
+                SourceFileId = reader.GetGuid(0),
+                TargetFileId = reader.GetGuid(1),
+                DependencyType = reader.IsDBNull(2) ? null : reader.GetString(2),
+                Strength = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            });
+        }
+        return dependencies;
+    }
+
+    // File Ownership
+    public async Task UpsertFileOwnership(FileOwnership ownership)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "INSERT INTO file_ownership (file_id, author_name, semantic_score, last_updated) VALUES (@fileId, @authorName, @score, @updated) ON CONFLICT (file_id, author_name) DO UPDATE SET semantic_score = @score, last_updated = @updated",
+            conn);
+
+        cmd.Parameters.AddWithValue("fileId", ownership.FileId);
+        cmd.Parameters.AddWithValue("authorName", ownership.AuthorName);
+        cmd.Parameters.AddWithValue("score", (object?)ownership.SemanticScore ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("updated", ownership.LastUpdated);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<FileOwnership>> GetFileOwnership(Guid fileId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT file_id, author_name, semantic_score, last_updated FROM file_ownership WHERE file_id = @fileId ORDER BY semantic_score DESC LIMIT 3",
+            conn);
+
+        cmd.Parameters.AddWithValue("fileId", fileId);
+
+        var ownerships = new List<FileOwnership>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            ownerships.Add(new FileOwnership
+            {
+                FileId = reader.GetGuid(0),
+                AuthorName = reader.GetString(1),
+                SemanticScore = reader.IsDBNull(2) ? null : reader.GetDecimal(2),
+                LastUpdated = reader.GetDateTime(3)
+            });
+        }
+        return ownerships;
+    }
+
+    public async Task<string?> GetMostActiveAuthorForFile(Guid fileId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            @"SELECT c.author_name, COUNT(*) as change_count
+              FROM file_changes fc
+              JOIN commits c ON fc.commit_id = c.id
+              WHERE fc.file_id = @fileId AND c.author_name IS NOT NULL
+              GROUP BY c.author_name
+              ORDER BY change_count DESC
+              LIMIT 1",
+            conn);
+
+        cmd.Parameters.AddWithValue("fileId", fileId);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return reader.GetString(0);
+        }
+        return null;
+    }
+
+    // Pull Requests
+    public async Task<PullRequest?> GetPullRequestByNumber(Guid repositoryId, int prNumber)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, pr_number, title, state, author_id FROM pull_requests WHERE repository_id = @repoId AND pr_number = @prNumber",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+        cmd.Parameters.AddWithValue("prNumber", prNumber);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new PullRequest
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                PrNumber = reader.GetInt32(2),
+                Title = reader.IsDBNull(3) ? null : reader.GetString(3),
+                State = reader.IsDBNull(4) ? null : reader.GetString(4),
+                AuthorId = reader.IsDBNull(5) ? null : reader.GetGuid(5)
+            };
+        }
+        return null;
+    }
+
+    public async Task<PullRequest> CreatePullRequest(PullRequest pr)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "INSERT INTO pull_requests (repository_id, pr_number, title, state, author_id) VALUES (@repoId, @prNumber, @title, @state, @authorId) RETURNING id",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", pr.RepositoryId);
+        cmd.Parameters.AddWithValue("prNumber", pr.PrNumber);
+        cmd.Parameters.AddWithValue("title", (object?)pr.Title ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("state", (object?)pr.State ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("authorId", (object?)pr.AuthorId ?? DBNull.Value);
+
+        pr.Id = (Guid)(await cmd.ExecuteScalarAsync())!;
+        return pr;
+    }
+
+    public async Task<List<PullRequest>> GetOpenPullRequests(Guid repositoryId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, pr_number, state, author_id FROM pull_requests WHERE repository_id = @repoId AND state = 'open'",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+
+        var prs = new List<PullRequest>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            prs.Add(new PullRequest
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                PrNumber = reader.GetInt32(2),
+                State = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AuthorId = reader.IsDBNull(4) ? null : reader.GetGuid(4)
+            });
+        }
+        return prs;
+    }
+
+    public async Task<List<PullRequest>> GetAllPullRequests(Guid repositoryId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, pr_number, title, state, author_id FROM pull_requests WHERE repository_id = @repoId ORDER BY pr_number DESC",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+
+        var prs = new List<PullRequest>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            prs.Add(new PullRequest
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                PrNumber = reader.GetInt32(2),
+                Title = reader.IsDBNull(3) ? null : reader.GetString(3),
+                State = reader.IsDBNull(4) ? null : reader.GetString(4),
+                AuthorId = reader.IsDBNull(5) ? null : reader.GetGuid(5)
+            });
+        }
+        return prs;
+    }
+
+    public async Task UpdatePullRequestState(Guid prId, string state)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand("UPDATE pull_requests SET state = @state WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("state", state);
+        cmd.Parameters.AddWithValue("id", prId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task UpdatePullRequestTitle(Guid prId, string title)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand("UPDATE pull_requests SET title = @title WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("title", (object?)title ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("id", prId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task DeletePrFilesChangedByPrId(Guid prId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand("DELETE FROM pr_files_changed WHERE pr_id = @prId", conn);
+        cmd.Parameters.AddWithValue("prId", prId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // PR Files
+    public async Task CreatePrFileChanged(PrFileChanged prFile)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "INSERT INTO pr_files_changed (pr_id, file_id) VALUES (@prId, @fileId) ON CONFLICT (pr_id, file_id) DO NOTHING",
+            conn);
+
+        cmd.Parameters.AddWithValue("prId", prFile.PrId);
+        cmd.Parameters.AddWithValue("fileId", prFile.FileId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<RepositoryFile>> GetPrFiles(Guid prId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT rf.id, rf.repository_id, rf.file_path, rf.total_lines FROM repository_files rf JOIN pr_files_changed pfc ON rf.id = pfc.file_id WHERE pfc.pr_id = @prId",
+            conn);
+
+        cmd.Parameters.AddWithValue("prId", prId);
+
+        var files = new List<RepositoryFile>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            files.Add(new RepositoryFile
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                FilePath = reader.GetString(2),
+                TotalLines = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            });
+        }
+        return files;
+    }
+
+    public async Task<List<PrConflict>> GetPotentialConflicts(Guid prId, Guid repositoryId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        // Step 1: Get all files in the current PR
+        var currentPrFiles = new List<Guid>();
+        using (var cmd = new NpgsqlCommand("SELECT file_id FROM pr_files_changed WHERE pr_id = @prId", conn))
+        {
+            cmd.Parameters.AddWithValue("prId", prId);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                currentPrFiles.Add(reader.GetGuid(0));
+            }
+        }
+
+        if (currentPrFiles.Count == 0)
+            return new List<PrConflict>();
+
+        // Step 2: Find other open PRs with overlapping files
+        var conflicts = new Dictionary<Guid, PrConflict>();
+
+        using (var cmd = new NpgsqlCommand(@"
+            SELECT DISTINCT pr.id, pr.pr_number, pr.title, f.file_path
+            FROM pr_files_changed pfc
+            JOIN pull_requests pr ON pfc.pr_id = pr.id
+            JOIN repository_files f ON pfc.file_id = f.id
+            WHERE pfc.file_id = ANY(@fileIds)
+              AND pr.state = 'open'
+              AND pr.id != @prId
+              AND pr.repository_id = @repositoryId
+            ORDER BY pr.pr_number", conn))
+        {
+            cmd.Parameters.AddWithValue("fileIds", currentPrFiles.ToArray());
+            cmd.Parameters.AddWithValue("prId", prId);
+            cmd.Parameters.AddWithValue("repositoryId", repositoryId);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var conflictPrId = reader.GetGuid(0);
+                var prNumber = reader.GetInt32(1);
+                var title = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                var filePath = reader.GetString(3);
+
+                if (!conflicts.ContainsKey(conflictPrId))
+                {
+                    conflicts[conflictPrId] = new PrConflict
+                    {
+                        ConflictingPrId = conflictPrId,
+                        PrNumber = prNumber,
+                        Title = title,
+                        OverlappingFiles = new List<string>(),
+                        OverlapCount = 0
+                    };
+                }
+
+                conflicts[conflictPrId].OverlappingFiles.Add(filePath);
+                conflicts[conflictPrId].OverlapCount++;
+            }
+        }
+
+        // Step 3: Calculate conflict percentages
+        foreach (var conflict in conflicts.Values)
+        {
+            conflict.ConflictPercentage = Math.Round((decimal)conflict.OverlapCount / currentPrFiles.Count * 100, 1);
+        }
+
+        return conflicts.Values.OrderByDescending(c => c.OverlapCount).ToList();
+    }
 }
 
 
