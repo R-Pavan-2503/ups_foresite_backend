@@ -155,7 +155,7 @@ public class GitHubService : IGitHubService
         try
         {
             var commit = await GetCommit(owner, repo, sha, accessToken);
-            
+
             // Extract author info from commit.Author (GitHub user)
             if (commit?.Author != null)
             {
@@ -172,6 +172,134 @@ public class GitHubService : IGitHubService
         {
             // Author not found or API error
             return null;
+        }
+    }
+
+    // Pull Requests
+    public async Task<IReadOnlyList<Octokit.PullRequest>> GetPullRequests(string owner, string repo, PullRequestRequest? request = null)
+    {
+        request ??= new PullRequestRequest();
+        try
+        {
+            return await _client.PullRequest.GetAllForRepository(owner, repo, request);
+        }
+        catch (Exception)
+        {
+            var installationToken = await GetInstallationTokenForRepo(owner, repo);
+            var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+            {
+                Credentials = new Credentials(installationToken)
+            };
+            return await client.PullRequest.GetAllForRepository(owner, repo, request);
+        }
+    }
+
+    public async Task<Octokit.PullRequest> GetPullRequest(string owner, string repo, int number, string? accessToken = null)
+    {
+        if (!string.IsNullOrEmpty(accessToken))
+        {
+            var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+            {
+                Credentials = new Credentials(accessToken)
+            };
+            return await client.PullRequest.Get(owner, repo, number);
+        }
+
+        try
+        {
+            return await _client.PullRequest.Get(owner, repo, number);
+        }
+        catch (Exception)
+        {
+            var installationToken = await GetInstallationTokenForRepo(owner, repo);
+            var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+            {
+                Credentials = new Credentials(installationToken)
+            };
+            return await client.PullRequest.Get(owner, repo, number);
+        }
+    }
+
+    public async Task<IReadOnlyList<PullRequestFile>> GetPullRequestFiles(string owner, string repo, int number, string? accessToken = null)
+    {
+        if (!string.IsNullOrEmpty(accessToken))
+        {
+            var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+            {
+                Credentials = new Credentials(accessToken)
+            };
+            return await client.PullRequest.Files(owner, repo, number);
+        }
+
+        try
+        {
+            return await _client.PullRequest.Files(owner, repo, number);
+        }
+        catch (Exception)
+        {
+            var installationToken = await GetInstallationTokenForRepo(owner, repo);
+            var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+            {
+                Credentials = new Credentials(installationToken)
+            };
+            return await client.PullRequest.Files(owner, repo, number);
+        }
+    }
+
+    // Webhooks
+    public async Task<RepositoryHook> CreateWebhook(string owner, string repo, string webhookUrl, string secret)
+    {
+        // Use installation token
+        var installationToken = await GetInstallationTokenForRepo(owner, repo);
+        var authenticatedClient = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+        {
+            Credentials = new Credentials(installationToken)
+        };
+
+        var config = new Dictionary<string, string>
+        {
+            { "url", $"{webhookUrl}/webhooks/github" },
+            { "content_type", "json" },
+            { "secret", secret }
+        };
+
+        var hook = new NewRepositoryHook("web", config)
+        {
+            Events = new[] { "push", "pull_request", "pull_request_target" },
+            Active = true
+        };
+
+        return await authenticatedClient.Repository.Hooks.Create(owner, repo, hook);
+    }
+
+    public async Task<bool> VerifyWebhookSignature(string payload, string signature, string secret)
+    {
+        if (string.IsNullOrEmpty(signature) || !signature.StartsWith("sha256="))
+            return false;
+
+        var expectedSignature = signature.Substring(7); // Remove "sha256="
+
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
+        var computedSignature = BitConverter.ToString(hash).Replace("-", "").ToLower();
+
+        return expectedSignature == computedSignature;
+    }
+
+    public async Task RegisterWebhook(string owner, string repo)
+    {
+        try
+        {
+            // Check if webhook URL is configured
+            var webhookUrl = Environment.GetEnvironmentVariable("WEBHOOK_URL")
+                ?? "https://conflagrant-alleen-balletic.ngrok-free.dev";
+
+            await CreateWebhook(owner, repo, webhookUrl, _settings.WebhookSecret);
+        }
+        catch (Exception ex)
+        {
+            // Webhook might already exist - this is non-fatal
+            Console.WriteLine($"Webhook registration note: {ex.Message}");
         }
     }
 
