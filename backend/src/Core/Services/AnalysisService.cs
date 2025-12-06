@@ -1054,4 +1054,60 @@ public class AnalysisService : IAnalysisService
         }
         return result;
     }
+
+    public async Task ProcessIncrementalUpdate(Guid repositoryId, string commitSha, List<string> changedFiles)
+    {
+        _logger.LogInformation($"Processing incremental update for commit {commitSha}");
+        try
+        {
+            var repository = await _db.GetRepositoryById(repositoryId);
+            if (repository == null)
+            {
+                _logger.LogError($"Repository {repositoryId} not found");
+                return;
+            }
+            using var repo = _repoService.GetRepository(repository.OwnerUsername, repository.Name);
+
+            // Always get the Git commit object
+            var gitCommit = repo.Lookup(commitSha) as LibGitCommit;
+            if (gitCommit == null)
+            {
+                _logger.LogError($"Commit {commitSha} not found in repository");
+                return;
+            }
+
+            var commit = await _db.GetCommitBySha(repositoryId, commitSha);
+            if (commit == null)
+            {
+                commit = await _db.CreateCommit(new DbCommit
+                {
+                    RepositoryId = repositoryId,
+                    Sha = commitSha,
+                    Message = gitCommit.MessageShort,
+                    CommittedAt = gitCommit.Author.When.UtcDateTime
+                });
+            }
+            foreach (var filePath in changedFiles)
+            {
+                // For incremental updates we don't have author info – use commit author if available
+                var placeholderEmail = commit.AuthorEmail ?? "incremental@update.com";
+                var placeholderUserId = commit.AuthorUserId ?? Guid.Empty;
+
+                if (placeholderUserId == Guid.Empty)
+                {
+                    _logger.LogWarning($"⚠️ No author for incremental update, skipping file {filePath}");
+                    continue;
+                }
+
+                await ProcessFile(repo, commit, gitCommit, filePath, placeholderUserId, placeholderEmail);
+            }
+            _logger.LogInformation($"Incremental update complete for {changedFiles.Count} files");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Incremental update failed: {ex.Message}");
+            throw;
+        }
+    }
+
 }
