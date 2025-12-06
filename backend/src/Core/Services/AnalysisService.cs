@@ -45,7 +45,7 @@ public class AnalysisService : IAnalysisService
         _github = github;
         _logger = logger;
     }
-public async Task AnalyzeRepository(string owner, string repoName, Guid repositoryId, Guid userId)
+    public async Task AnalyzeRepository(string owner, string repoName, Guid repositoryId, Guid userId)
     {
         _logger.LogInformation($"🚀 Starting COMPLETE analysis of {owner}/{repoName}");
         _fileAuthorDeltas.Clear();
@@ -120,7 +120,7 @@ public async Task AnalyzeRepository(string owner, string repoName, Guid reposito
                         if (commit == null)
                         {
                             isNewCommit = true;
-                            
+
                             var authorEmail = gitCommit.Author.Email ?? "unknown@example.com";
                             var authorName = gitCommit.Author.Name ?? "unknown";
 
@@ -137,13 +137,13 @@ public async Task AnalyzeRepository(string owner, string repoName, Guid reposito
 
                             // NEVER store noreply emails - use user's email or null
                             var commitEmail = authorUser.Email;
-                            if (string.IsNullOrWhiteSpace(commitEmail) && 
-                                !string.IsNullOrWhiteSpace(authorEmail) && 
+                            if (string.IsNullOrWhiteSpace(commitEmail) &&
+                                !string.IsNullOrWhiteSpace(authorEmail) &&
                                 !authorEmail.Contains("@users.noreply.github.com"))
                             {
                                 commitEmail = authorEmail; // Only use real emails
                             }
-                            
+
                             commit = await _db.CreateCommit(new DbCommit
                             {
                                 RepositoryId = repositoryId,
@@ -250,7 +250,7 @@ public async Task AnalyzeRepository(string owner, string repoName, Guid reposito
         // Step 1: Parse noreply emails to extract GitHub username and ID
         string? githubUsername = null;
         long githubId = 0;
-        
+
         if (!string.IsNullOrWhiteSpace(email) && email.Contains("@users.noreply.github.com"))
         {
             var parts = email.Split('@')[0].Split('+');
@@ -271,10 +271,10 @@ public async Task AnalyzeRepository(string owner, string repoName, Guid reposito
                 _logger.LogInformation($"✅ Found existing user by email '{email}': {existingByEmail.AuthorName}");
                 return existingByEmail;
             }
-            
+
             // Email not found - need to call GitHub API to get real username
             _logger.LogInformation($"🔍 Unknown email '{email}' - calling GitHub API for commit {commitSha[..7]}");
-            
+
             try
             {
                 var commitAuthor = await _github.GetCommitAuthor(repoOwner, repoName, commitSha);
@@ -314,7 +314,7 @@ public async Task AnalyzeRepository(string owner, string repoName, Guid reposito
                     return existingById;
                 }
             }
-            
+
             // Then try by GitHub username
             var existingByUsername = await _db.GetUserByAuthorName(githubUsername);
             if (existingByUsername != null)
@@ -328,7 +328,7 @@ public async Task AnalyzeRepository(string owner, string repoName, Guid reposito
                 }
                 return existingByUsername;
             }
-            
+
             // User doesn't exist - ALWAYS call GitHub API to get real username before creating
             if (string.IsNullOrWhiteSpace(email) || email.Contains("@users.noreply.github.com"))
             {
@@ -349,10 +349,10 @@ public async Task AnalyzeRepository(string owner, string repoName, Guid reposito
                     _logger.LogWarning($"⚠️ GitHub API call failed: {ex.Message}");
                 }
             }
-            
+
             // Create user - set email to null for noreply, or use real email
             var userEmail = email != null && email.Contains("@users.noreply.github.com") ? null : email;
-            
+
             var newUser = await _db.CreateUser(new User
             {
                 GithubId = githubId,
@@ -360,7 +360,7 @@ public async Task AnalyzeRepository(string owner, string repoName, Guid reposito
                 Email = userEmail,
                 AvatarUrl = $"https://ui-avatars.com/api/?name={Uri.EscapeDataString(githubUsername)}"
             });
-            
+
             _logger.LogInformation($"➕ Created new user: {githubUsername} (GitHub ID: {githubId}, Email: {userEmail ?? "none"})");
             return newUser;
         }
@@ -368,13 +368,13 @@ public async Task AnalyzeRepository(string owner, string repoName, Guid reposito
         // Step 4: Fallback - couldn't get GitHub username (API failed or noreply parse failed)
         // Use Git config name as last resort
         _logger.LogWarning($"⚠️ Could not resolve GitHub username for '{username}' - using Git config name as fallback");
-        
+
         var fallbackUser = await _db.GetUserByAuthorName(username);
         if (fallbackUser != null)
         {
             return fallbackUser;
         }
-        
+
         var fallbackEmail = email != null && email.Contains("@users.noreply.github.com") ? null : email;
         var createdFallbackUser = await _db.CreateUser(new User
         {
@@ -383,7 +383,148 @@ public async Task AnalyzeRepository(string owner, string repoName, Guid reposito
             Email = fallbackEmail,
             AvatarUrl = $"https://ui-avatars.com/api/?name={Uri.EscapeDataString(username)}"
         });
-        
+
         _logger.LogWarning($"➕ Created fallback user: {username}");
         return createdFallbackUser;
     }
+
+    // ---------------------------------------------------------------------
+    // Process a single file at a specific commit
+    // ---------------------------------------------------------------------
+    private async Task ProcessFile(
+        LibGitRepository repo,
+        DbCommit commit,
+        LibGitCommit gitCommit,
+        string filePath,
+        Guid authorId,
+        string authorEmail)
+    {
+        // Ensure file record exists
+        var file = await _db.GetFileByPath(commit.RepositoryId, filePath);
+        if (file == null)
+        {
+            file = await _db.CreateFile(new RepositoryFile
+            {
+                RepositoryId = commit.RepositoryId,
+                FilePath = filePath
+            });
+        }
+
+        // Retrieve file content at this commit
+        var content = _repoService.GetFileContentAtCommit(repo, gitCommit.Sha, filePath);
+        if (string.IsNullOrEmpty(content)) return; // nothing to analyse
+
+        // Determine language for parsing
+        var language = _repoService.GetLanguageFromPath(filePath);
+        if (language == "unknown") return; // skip unsupported files
+
+        // Parse source code using Tree‑sitter
+        var parseResult = await _treeSitter.ParseCode(content, language);
+
+        // -----------------------------------------------------------------
+        // Embeddings & semantic delta tracking
+        // -----------------------------------------------------------------
+        var previousEmbeddings = await _db.GetEmbeddingsByFile(file.Id);
+        var currentDeltas = new List<double>();
+        foreach (var function in parseResult.Functions)
+        {
+            try
+            {
+                var embedding = await _gemini.GenerateEmbedding(function.Code);
+                await _db.CreateEmbedding(new CodeEmbedding
+                {
+                    FileId = file.Id,
+                    Embedding = embedding,
+                    ChunkContent = function.Code,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                if (previousEmbeddings.Count > 0)
+                {
+                    var delta = CalculateSemanticDelta(embedding, previousEmbeddings[^1].Embedding);
+                    currentDeltas.Add(delta);
+                    _logger.LogInformation($"📊 File {file.Id} has semantic delta of {delta}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"⚠️ Failed to generate embedding for function in {filePath}: {ex.Message}");
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // Ownership contribution aggregation
+        // -----------------------------------------------------------------
+        if (currentDeltas.Count > 0)
+        {
+            if (!_fileAuthorDeltas.ContainsKey(file.Id))
+                _fileAuthorDeltas[file.Id] = new Dictionary<string, List<double>>();
+
+            if (!_fileAuthorDeltas[file.Id].ContainsKey(authorEmail))
+                _fileAuthorDeltas[file.Id][authorEmail] = new List<double>();
+
+            _fileAuthorDeltas[file.Id][authorEmail].AddRange(currentDeltas);
+        }
+
+        // -----------------------------------------------------------------
+        // Dependency creation based on imports
+        // -----------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // Dependency creation based on imports
+        // -----------------------------------------------------------------
+        _logger.LogInformation($"🔍 Analyzing dependencies for {filePath}. Found {parseResult.Imports.Count} imports.");
+
+        foreach (var import in parseResult.Imports)
+        {
+            try
+            {
+                _logger.LogInformation($"  👉 Processing import: '{import.Module}'");
+                var targetPath = await ResolveImportPathAsync(filePath, import.Module, language, commit.RepositoryId);
+
+                if (targetPath != null)
+                {
+                    _logger.LogInformation($"    ✅ Resolved path: {targetPath}");
+                    var targetFile = await _db.GetFileByPath(commit.RepositoryId, targetPath);
+
+                    if (targetFile != null)
+                    {
+                        await _db.CreateDependency(new Dependency
+                        {
+                            SourceFileId = file.Id,
+                            TargetFileId = targetFile.Id,
+                            DependencyType = "import",
+                            Strength = 1
+                        });
+                        _logger.LogInformation($"    🔗 Created dependency: {filePath} -> {targetPath}");
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"    ⚠️ Resolved path '{targetPath}' not found in database for repo {commit.RepositoryId}");
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation($"    ❌ Could not resolve path for '{import.Module}'");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"    ⚠️ Exception processing import '{import.Module}': {ex.Message}");
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // Record file change with REAL additions/deletions from Git diff
+        // -----------------------------------------------------------------
+        var (additions, deletions) = _repoService.GetFileLineStats(repo, gitCommit, filePath);
+        await _db.CreateFileChange(new FileChange
+        {
+            CommitId = commit.Id,
+            FileId = file.Id,
+            Additions = additions,
+            Deletions = deletions
+        });
+    }
+
+
+}
