@@ -983,4 +983,75 @@ public class AnalysisService : IAnalysisService
         return Math.Sqrt(sum);
     }
 
+    // ---------------------------------------------------------------------
+    // Existing interface methods (kept for compatibility)
+    // ---------------------------------------------------------------------
+    public async Task<double> CalculateRisk(Guid fileId1, Guid fileId2)
+    {
+        var embeddings1 = await _db.GetEmbeddingsByFile(fileId1);
+        var embeddings2 = await _db.GetEmbeddingsByFile(fileId2);
+        if (embeddings1.Count == 0 || embeddings2.Count == 0) return 0;
+        var e1 = embeddings1[^1].Embedding;
+        var e2 = embeddings2[^1].Embedding;
+        double dot = 0, norm1 = 0, norm2 = 0;
+        for (int i = 0; i < Math.Min(e1.Length, e2.Length); i++)
+        {
+            dot += e1[i] * e2[i];
+            norm1 += e1[i] * e1[i];
+            norm2 += e2[i] * e2[i];
+        }
+        return dot / (Math.Sqrt(norm1) * Math.Sqrt(norm2));
+    }
+
+    public async Task<RiskAnalysisResult> CalculateRisk(Guid repositoryId, List<string> changedFiles, List<float[]> newEmbeddings)
+    {
+        var result = new RiskAnalysisResult
+        {
+            RiskScore = 0,
+            StructuralOverlap = 0,
+            SemanticOverlap = 0,
+            ConflictingPrs = new List<ConflictingPr>()
+        };
+        try
+        {
+            var openPRs = await _db.GetOpenPullRequests(repositoryId);
+            foreach (var pr in openPRs)
+            {
+                var prFiles = await _db.GetPrFiles(pr.Id);
+                var structuralOverlap = changedFiles.Intersect(prFiles.Select(f => f.FilePath)).ToList();
+                double maxSemanticSimilarity = 0;
+                foreach (var changedFile in changedFiles)
+                {
+                    var file = await _db.GetFileByPath(repositoryId, changedFile);
+                    if (file == null) continue;
+                    foreach (var prFile in prFiles)
+                    {
+                        var similarity = await CalculateRisk(file.Id, prFile.Id);
+                        if (similarity > maxSemanticSimilarity) maxSemanticSimilarity = similarity;
+                    }
+                }
+                var structuralScore = structuralOverlap.Count > 0 ? 1.0 : 0.0;
+                var semanticScore = maxSemanticSimilarity;
+                var riskScore = (structuralScore * 0.4) + (semanticScore * 0.6);
+                if (riskScore > 0.8)
+                {
+                    result.ConflictingPrs.Add(new ConflictingPr
+                    {
+                        PrNumber = pr.PrNumber,
+                        Title = null,
+                        Risk = riskScore,
+                        ConflictingFiles = structuralOverlap
+                    });
+                }
+                result.RiskScore = Math.Max(result.RiskScore, riskScore);
+                result.StructuralOverlap = Math.Max(result.StructuralOverlap, structuralScore);
+                result.SemanticOverlap = Math.Max(result.SemanticOverlap, semanticScore);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Risk calculation failed: {ex.Message}");
+        }
+        return result;
+    }
 }
