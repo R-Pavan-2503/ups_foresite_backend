@@ -526,5 +526,49 @@ public class AnalysisService : IAnalysisService
         });
     }
 
+    // ---------------------------------------------------------------------
+    // Calculate and persist ownership percentages for all files in a repo
+    // ---------------------------------------------------------------------
+    private async Task CalculateAllFileOwnership(Guid repositoryId)
+    {
+        var files = await _db.GetFilesByRepository(repositoryId);
+        foreach (var file in files)
+        {
+            await CalculateSemanticOwnership(file.Id, repositoryId);
+        }
+    }
 
+    public async Task CalculateSemanticOwnership(Guid fileId, Guid repositoryId)
+    {
+        if (!_fileAuthorDeltas.ContainsKey(fileId)) return;
+
+        var authorContributions = _fileAuthorDeltas[fileId];
+        var totalDelta = authorContributions.Values.SelectMany(d => d).Sum();
+        if (totalDelta == 0) return;
+
+        foreach (var kvp in authorContributions)
+        {
+            var authorEmail = kvp.Key;
+            var deltas = kvp.Value;
+            var authorDelta = deltas.Sum();
+            var ownershipScore = (decimal)(authorDelta / totalDelta * 100);
+
+            // User should already exist from commit processing - just look up by email
+            var user = await _db.GetUserByEmail(authorEmail);
+            if (user == null)
+            {
+                _logger.LogWarning($"⚠️ User with email {authorEmail} not found during ownership calculation");
+                continue;
+            }
+
+            _logger.LogInformation($"👤 File {fileId}: {authorEmail} owns {ownershipScore:F2}%");
+            await _db.UpsertFileOwnership(new FileOwnership
+            {
+                FileId = fileId,
+                AuthorName = authorEmail,
+                SemanticScore = ownershipScore,
+                LastUpdated = DateTime.UtcNow
+            });
+        }
+    }
 }
