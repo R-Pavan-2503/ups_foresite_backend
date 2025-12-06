@@ -571,4 +571,95 @@ public class AnalysisService : IAnalysisService
             });
         }
     }
+
+    // ---------------------------------------------------------------------
+    // Dependency graph metrics (blast radius etc.)
+    // ---------------------------------------------------------------------
+    private async Task CalculateDependencyMetrics(Guid repositoryId)
+    {
+        var files = await _db.GetFilesByRepository(repositoryId);
+        foreach (var file in files)
+        {
+            var dependencies = await _db.GetDependenciesForFile(file.Id);
+            var dependents = await _db.GetDependentsForFile(file.Id);
+            _logger.LogInformation($"📦 File {file.FilePath}: {dependencies.Count} dependencies, {dependents.Count} dependents");
+            // Blast radius is simply the number of dependents for now
+            // TODO: Persist if needed
+        }
+    }
+
+
+    // ---------------------------------------------------------------------
+    // Reconcile dependencies at HEAD - catch any missing dependencies
+    // where target files were added after their importers
+    // ---------------------------------------------------------------------
+    private async Task ReconcileDependenciesAtHead(LibGitRepository repo, Guid repositoryId)
+    {
+        var headCommit = repo.Head.Tip;
+        if (headCommit == null)
+        {
+            _logger.LogWarning("No HEAD commit found, skipping reconciliation");
+            return;
+        }
+
+        var allFiles = await _db.GetFilesByRepository(repositoryId);
+        _logger.LogInformation($"🔍 Reconciling {allFiles.Count} files at HEAD commit {headCommit.Sha[..7]}");
+
+        int reconciledCount = 0;
+        foreach (var file in allFiles)
+        {
+            try
+            {
+                // Get file content at HEAD
+                var content = _repoService.GetFileContentAtCommit(repo, headCommit.Sha, file.FilePath);
+                if (content == null) continue;
+
+                var language = _repoService.GetLanguageFromPath(file.FilePath);
+                if (language == "unknown") continue;
+
+                // Extract imports using ParseCode
+                var parseResult = await _treeSitter.ParseCode(content, language);
+                if (parseResult?.Imports == null || parseResult.Imports.Count == 0) continue;
+
+                // Try to resolve each import and create missing dependencies
+                foreach (var import in parseResult.Imports)
+                {
+                    try
+                    {
+                        var targetPath = await ResolveImportPathAsync(file.FilePath, import.Module, language, repositoryId);
+                        if (targetPath != null)
+                        {
+                            var targetFile = await _db.GetFileByPath(repositoryId, targetPath);
+                            if (targetFile != null)
+                            {
+                                // Check if dependency already exists
+                                var existingDeps = await _db.GetDependenciesForFile(file.Id);
+                                if (!existingDeps.Any(d => d.TargetFileId == targetFile.Id))
+                                {
+                                    // Create the missing dependency
+                                    await _db.CreateDependency(new Dependency
+                                    {
+                                        SourceFileId = file.Id,
+                                        TargetFileId = targetFile.Id
+                                    });
+                                    _logger.LogInformation($"  ✨ Reconciled: {file.FilePath} -> {targetPath}");
+                                    reconciledCount++;
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning($"  ⚠️ Error reconciling import '{import.Module}' in {file.FilePath}: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"  ⚠️ Error reconciling file {file.FilePath}: {ex.Message}");
+            }
+        }
+
+        _logger.LogInformation($"✅ Reconciled {reconciledCount} missing dependencies");
+    }
 }
