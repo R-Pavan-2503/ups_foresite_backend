@@ -662,4 +662,181 @@ public class AnalysisService : IAnalysisService
 
         _logger.LogInformation($"✅ Reconciled {reconciledCount} missing dependencies");
     }
+
+    // ---------------------------------------------------------------------
+    // Register GitHub webhook via the GitHub service
+    // ---------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Register GitHub webhook via the GitHub service
+    // ---------------------------------------------------------------------
+    private async Task RegisterWebhook(string owner, string repo)
+    {
+        try
+        {
+            await _github.RegisterWebhook(owner, repo);
+            _logger.LogInformation($"✅ Webhook registered for {owner}/{repo}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"⚠️ Failed to register webhook for {owner}/{repo}. Error: {ex.Message}");
+            _logger.LogWarning($"   Ensure the GitHub App is installed on this repository and has 'write' permissions for webhooks.");
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Fetch and store pull requests from GitHub API
+    // ---------------------------------------------------------------------
+    private async Task FetchAndStorePullRequests(string owner, string repo, Guid repositoryId)
+    {
+        try
+        {
+            _logger.LogInformation($"📋 Attempting to fetch PRs for: {owner}/{repo}");
+            _logger.LogInformation($"   Repository ID: {repositoryId}");
+
+            // Fetch ALL pull requests (open and closed)
+            var openRequest = new Octokit.PullRequestRequest { State = Octokit.ItemStateFilter.Open };
+            var closedRequest = new Octokit.PullRequestRequest { State = Octokit.ItemStateFilter.Closed };
+
+            _logger.LogInformation($"   🔍 Fetching open PRs from GitHub API...");
+            var openPRs = await _github.GetPullRequests(owner, repo, openRequest);
+            _logger.LogInformation($"   ✅ Fetched {openPRs.Count} open PRs");
+
+            _logger.LogInformation($"   🔍 Fetching closed PRs from GitHub API...");
+            var closedPRs = await _github.GetPullRequests(owner, repo, closedRequest);
+
+            var allPRs = openPRs.Concat(closedPRs).ToList();
+            _logger.LogInformation($"   Found {allPRs.Count} total pull requests ({openPRs.Count} open, {closedPRs.Count} closed)");
+
+            int createdCount = 0;
+            int skippedCount = 0;
+
+            foreach (var pr in allPRs)
+            {
+                try
+                {
+                    // Check if PR already exists
+                    var existing = await _db.GetPullRequestByNumber(repositoryId, pr.Number);
+                    if (existing != null)
+                    {
+                        // Backfill title if missing
+                        if (string.IsNullOrEmpty(existing.Title) && !string.IsNullOrEmpty(pr.Title))
+                        {
+                            await _db.UpdatePullRequestTitle(existing.Id, pr.Title);
+                            _logger.LogInformation($"   Updated title for PR #{pr.Number}");
+                        }
+
+                        // ✨ NEW: Sync PR state from GitHub
+                        var githubState = pr.State.StringValue; // "open", "closed"
+                        var dbState = existing.State ?? "unknown";
+
+                        if (!githubState.Equals(dbState, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // State has changed - update database
+                            await _db.UpdatePullRequestState(existing.Id, githubState);
+                            _logger.LogInformation($"   ✅ Updated PR #{pr.Number} state: {dbState} → {githubState}");
+
+                            // If PR was closed/merged, clean up pr_files_changed table
+                            if (githubState.Equals("closed", StringComparison.OrdinalIgnoreCase))
+                            {
+                                await _db.DeletePrFilesChangedByPrId(existing.Id);
+                                _logger.LogInformation($"   🧹 Cleaned up pr_files_changed for closed PR #{pr.Number}");
+                            }
+                        }
+
+                        skippedCount++;
+                        continue;
+                    }
+
+                    // Get or create author user - we have full GitHub data for PRs
+                    var authorGithubId = pr.User.Id; // Real GitHub ID
+                    var authorEmail = pr.User.Email; // Can be null - that's OK
+                    var authorUsername = pr.User.Login; // Real GitHub username
+
+                    // For PRs, we have real GitHub data so we can directly create/find user
+                    var author = await _db.GetUserByGitHubId(authorGithubId);
+                    if (author == null)
+                    {
+                        author = await _db.GetUserByAuthorName(authorUsername);
+                    }
+                    if (author == null)
+                    {
+                        author = await _db.CreateUser(new User
+                        {
+                            GithubId = authorGithubId,
+                            AuthorName = authorUsername,
+                            Email = authorEmail,
+                            AvatarUrl = pr.User.AvatarUrl ?? $"https://ui-avatars.com/api/?name={Uri.EscapeDataString(authorUsername)}"
+                        });
+                        _logger.LogInformation($"➕ Created user from PR: {authorUsername}");
+                    }
+
+                    // Create PR record
+                    var dbPr = await _db.CreatePullRequest(new PullRequest
+                    {
+                        RepositoryId = repositoryId,
+                        PrNumber = pr.Number,
+                        Title = pr.Title,
+                        State = pr.State.StringValue,
+                        AuthorId = author.Id
+                    });
+
+                    // Fetch and store PR file changes ONLY for open PRs
+                    if (pr.State.StringValue.Equals("open", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var prFiles = await _github.GetPullRequestFiles(owner, repo, pr.Number);
+                        _logger.LogInformation($"   PR #{pr.Number}: {prFiles.Count} files changed");
+
+                        foreach (var prFile in prFiles)
+                        {
+                            // Find or create the file in our database
+                            var file = await _db.GetFileByPath(repositoryId, prFile.FileName);
+                            if (file == null)
+                            {
+                                // File doesn't exist yet (likely in a feature branch)
+                                // Create it so PR files can be tracked
+                                _logger.LogInformation($"     ➕ Creating file record for '{prFile.FileName}' from PR #{pr.Number}");
+                                file = await _db.CreateFile(new RepositoryFile
+                                {
+                                    RepositoryId = repositoryId,
+                                    FilePath = prFile.FileName,
+                                    TotalLines = null // We don't have this info yet
+                                });
+                            }
+
+                            // Now add to PR files changed
+                            await _db.CreatePrFileChanged(new PrFileChanged
+                            {
+                                PrId = dbPr.Id,
+                                FileId = file.Id
+                            });
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogInformation($"   PR #{pr.Number}: Skipping file storage for closed PR");
+                    }
+
+                    createdCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"   ⚠️ Failed to process PR #{pr.Number}: {ex.Message}");
+                }
+            }
+
+            _logger.LogInformation($"✅ Stored {createdCount} pull requests, skipped {skippedCount} existing");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"❌ Failed to fetch pull requests for {owner}/{repo}");
+            _logger.LogError($"   Error Type: {ex.GetType().Name}");
+            _logger.LogError($"   Error Message: {ex.Message}");
+            if (ex.InnerException != null)
+            {
+                _logger.LogError($"   Inner Exception: {ex.InnerException.Message}");
+            }
+            _logger.LogError($"   Stack Trace: {ex.StackTrace}");
+            // Don't throw - PR fetching is not critical for analysis
+        }
+    }
 }
