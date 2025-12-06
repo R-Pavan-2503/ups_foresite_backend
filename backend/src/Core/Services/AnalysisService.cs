@@ -967,4 +967,20 @@ public class AnalysisService : IAnalysisService
 
         return null;
     }
+
+    // ---------------------------------------------------------------------
+    // Semantic delta calculation (Euclidean distance)
+    // ---------------------------------------------------------------------
+    private double CalculateSemanticDelta(float[] newEmbedding, float[] oldEmbedding)
+    {
+        double sum = 0;
+        int len = Math.Min(newEmbedding.Length, oldEmbedding.Length);
+        for (int i = 0; i < len; i++)
+        {
+            var diff = newEmbedding[i] - oldEmbedding[i];
+            sum += diff * diff;
+        }
+        return Math.Sqrt(sum);
+    }
+
 }
