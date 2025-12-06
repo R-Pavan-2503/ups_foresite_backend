@@ -839,4 +839,132 @@ public class AnalysisService : IAnalysisService
             // Don't throw - PR fetching is not critical for analysis
         }
     }
+
+    //---------------------------------------------------------------------
+    // Helper: Resolve import paths using repository files from database
+    // ---------------------------------------------------------------------
+    private async Task<string?> ResolveImportPathAsync(string sourceFile, string importModule, string language, Guid repositoryId)
+    {
+        // Normalize paths
+        sourceFile = sourceFile.Replace("\\", "/");
+        var sourceDir = Path.GetDirectoryName(sourceFile)?.Replace("\\", "/");
+
+        // Handle empty sourceDir (file in root directory)
+        if (string.IsNullOrEmpty(sourceDir))
+        {
+            sourceDir = "";
+        }
+
+        _logger.LogInformation($"    Resolving '{importModule}' from '{sourceDir}' (Language: {language})");
+
+
+        string? targetPath = null;
+
+        // Handle relative imports (./ or ../)
+        if (importModule.StartsWith("./") || importModule.StartsWith("../"))
+        {
+            // Normalize: combine source directory with import path
+            string combinedPath;
+            if (string.IsNullOrEmpty(sourceDir))
+            {
+                // File is in root, just use the import path
+                combinedPath = importModule;
+            }
+            else
+            {
+                // Combine with source directory
+                combinedPath = sourceDir + "/" + importModule;
+            }
+
+            // Use Path.GetFullPath with a fake root to resolve .. and .
+            var fakeRoot = "C:\\fakeroot";  // Use Windows path for GetFullPath
+            var combined = Path.Combine(fakeRoot, combinedPath.Replace("/", "\\"));
+
+            try
+            {
+                var resolved = Path.GetFullPath(combined);
+
+                // Check if path went above root
+                if (!resolved.StartsWith(fakeRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    targetPath = null;  // Path escaped root
+                }
+                else
+                {
+                    // Remove fake root and normalize to forward slashes
+                    targetPath = resolved.Substring(fakeRoot.Length)
+                        .TrimStart('\\', '/')
+                        .Replace("\\", "/");
+                }
+            }
+            catch
+            {
+                targetPath = null;
+            }
+        }
+        else if (language is "javascript" or "typescript")
+        {
+            // Non-relative import - could be local package or npm module
+            // Try to find it in the repository
+            var allFiles = await _db.GetFilesByRepository(repositoryId);
+            var matches = allFiles.Where(f => f.FilePath.Contains(importModule)).ToList();
+
+            if (matches.Count == 1)
+            {
+                return matches[0].FilePath;
+            }
+            else if (matches.Count > 1)
+            {
+                // Prefer exact match
+                var exact = matches.FirstOrDefault(f =>
+                    f.FilePath.EndsWith("/" + importModule) ||
+                    f.FilePath.EndsWith("/" + importModule + ".js") ||
+                    f.FilePath.EndsWith("/" + importModule + ".jsx") ||
+                    f.FilePath.EndsWith("/" + importModule + ".ts") ||
+                    f.FilePath.EndsWith("/" + importModule + ".tsx"));
+                if (exact != null) return exact.FilePath;
+            }
+
+            // If no match, it's likely an npm package - skip
+            return null;
+        }
+        else
+        {
+            // Other languages - only handle relative imports for now
+            return null;
+        }
+
+        // If targetPath is null, we couldn't resolve it
+        if (targetPath == null)
+        {
+            return null;
+        }
+
+        _logger.LogInformation($"    → Resolved to targetPath: '{targetPath}'");
+
+        // Get all repository files
+        var repoFiles = await _db.GetFilesByRepository(repositoryId);
+
+        // Try exact match
+        var exactFile = repoFiles.FirstOrDefault(f => f.FilePath.Equals(targetPath, StringComparison.OrdinalIgnoreCase));
+        if (exactFile != null) return exactFile.FilePath;
+
+        // Try with common extensions
+        var extensions = new[] { ".js", ".jsx", ".ts", ".tsx", ".py", ".go", ".java", ".cs" };
+        foreach (var ext in extensions)
+        {
+            var withExt = repoFiles.FirstOrDefault(f => f.FilePath.Equals(targetPath + ext, StringComparison.OrdinalIgnoreCase));
+            if (withExt != null) return withExt.FilePath;
+        }
+
+        // Try index files
+        foreach (var ext in extensions)
+        {
+            var indexPath = Path.Combine(targetPath, "index" + ext).Replace("\\", "/");
+            var indexFile = repoFiles.FirstOrDefault(f => f.FilePath.Equals(indexPath, StringComparison.OrdinalIgnoreCase));
+            if (indexFile != null) return indexFile.FilePath;
+        }
+
+        return null;
+    }
 }
