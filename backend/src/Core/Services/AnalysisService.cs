@@ -233,9 +233,9 @@ public async Task AnalyzeRepository(string owner, string repoName, Guid reposito
             throw;
         }
     }
-}
 
-// ---------------------------------------------------------------------
+
+    // ---------------------------------------------------------------------
     // Helper: Get or create a user record for an author
     // Email-first approach: Only call GitHub API for unknown emails
     // ---------------------------------------------------------------------
