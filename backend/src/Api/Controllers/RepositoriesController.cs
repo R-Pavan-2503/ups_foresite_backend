@@ -127,7 +127,7 @@ public class RepositoriesController : ControllerBase
         try
         {
             var repositories = await _db.GetAnalyzedRepositories(userId, filter);
-            
+
             var result = repositories.Select(r => new
             {
                 r.Id,
@@ -153,7 +153,7 @@ public class RepositoriesController : ControllerBase
         {
             // Parse GitHub URL
             var (owner, repo) = ParseGitHubUrl(request.Url);
-            
+
             if (string.IsNullOrEmpty(owner) || string.IsNullOrEmpty(repo))
             {
                 return BadRequest(new { error = "Invalid GitHub URL. Please provide a valid repository URL (e.g., https://github.com/owner/repo)" });
@@ -165,8 +165,9 @@ public class RepositoriesController : ControllerBase
             {
                 if (existing.Status == "ready")
                 {
-                    return Ok(new { 
-                        message = "Repository already analyzed", 
+                    return Ok(new
+                    {
+                        message = "Repository already analyzed",
                         repositoryId = existing.Id,
                         status = existing.Status,
                         alreadyExists = true
@@ -174,8 +175,9 @@ public class RepositoriesController : ControllerBase
                 }
                 else if (existing.Status == "analyzing" || existing.Status == "pending")
                 {
-                    return Ok(new { 
-                        message = "Repository analysis is already in progress", 
+                    return Ok(new
+                    {
+                        message = "Repository analysis is already in progress",
                         repositoryId = existing.Id,
                         status = existing.Status,
                         alreadyExists = true
@@ -203,8 +205,9 @@ public class RepositoriesController : ControllerBase
                 await _analysis.AnalyzeRepository(owner, repo, repository.Id, request.UserId);
             });
 
-            return Ok(new { 
-                message = "Analysis started successfully", 
+            return Ok(new
+            {
+                message = "Analysis started successfully",
                 repositoryId = repository.Id,
                 status = "pending",
                 alreadyExists = false
@@ -228,7 +231,7 @@ public class RepositoriesController : ControllerBase
             // owner/repo
 
             url = url.Trim();
-            
+
             // Remove .git suffix if present
             if (url.EndsWith(".git"))
             {
@@ -249,7 +252,7 @@ public class RepositoriesController : ControllerBase
 
             // Now we should have owner/repo or owner/repo/more-stuff
             var parts = url.Split('/');
-            
+
             if (parts.Length >= 2)
             {
                 return (parts[0], parts[1]);
@@ -262,7 +265,8 @@ public class RepositoriesController : ControllerBase
             return (string.Empty, string.Empty);
         }
     }
-        // New Analytics Endpoints
+
+    // New Analytics Endpoints
     [HttpGet("{repositoryId}/analytics")]
     public async Task<IActionResult> GetRepositoryAnalytics(Guid repositoryId)
     {
@@ -273,10 +277,10 @@ public class RepositoriesController : ControllerBase
 
             // Get all commits
             var commits = await _db.GetCommitsByRepository(repositoryId);
-            
+
             // Get all files
             var files = await _db.GetFilesByRepository(repositoryId);
-            
+
             // Get file changes to calculate hotspots
             var fileChangeCounts = new Dictionary<Guid, int>();
             foreach (var file in files)
@@ -302,7 +306,8 @@ public class RepositoriesController : ControllerBase
             var recentCommits = commits
                 .Where(c => c.CommittedAt >= thirtyDaysAgo)
                 .GroupBy(c => c.CommittedAt.Date)
-                .Select(g => new {
+                .Select(g => new
+                {
                     Date = g.Key.ToString("yyyy-MM-dd"),
                     Commits = g.Count()
                 })
@@ -311,11 +316,13 @@ public class RepositoriesController : ControllerBase
 
             // Calculate file type distribution
             var fileTypes = files
-                .GroupBy(f => {
+                .GroupBy(f =>
+                {
                     var ext = Path.GetExtension(f.FilePath);
                     return string.IsNullOrEmpty(ext) ? "no-ext" : ext.TrimStart('.');
                 })
-                .Select(g => new {
+                .Select(g => new
+                {
                     Name = g.Key,
                     Value = g.Count()
                 })
@@ -327,9 +334,11 @@ public class RepositoriesController : ControllerBase
             var hotspots = fileChangeCounts
                 .OrderByDescending(kvp => kvp.Value)
                 .Take(5)
-                .Select(kvp => {
+                .Select(kvp =>
+                {
                     var file = files.First(f => f.Id == kvp.Key);
-                    return new {
+                    return new
+                    {
                         FilePath = file.FilePath,
                         Changes = kvp.Value
                     };
@@ -340,7 +349,8 @@ public class RepositoriesController : ControllerBase
             var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
             var recentCommitsCount = commits.Count(c => c.CommittedAt >= sevenDaysAgo);
 
-            return Ok(new {
+            return Ok(new
+            {
                 TotalFiles = files.Count,
                 TotalCommits = commits.Count,
                 Contributors = contributorCount,
@@ -366,7 +376,7 @@ public class RepositoriesController : ControllerBase
 
             var files = await _db.GetFilesByRepository(repositoryId);
             var commits = await _db.GetCommitsByRepository(repositoryId);
-            
+
             // Analyze file types by extension
             var fileExtensions = files
                 .Select(f => Path.GetExtension(f.FilePath)?.TrimStart('.'))
@@ -378,21 +388,22 @@ public class RepositoriesController : ControllerBase
 
             // Build summary
             var summary = $"This repository contains {files.Count} files";
-            
+
             if (commits.Any())
             {
                 summary += $" with {commits.Count} commits";
             }
-            
+
             if (fileExtensions.Any())
             {
                 var topExtensions = string.Join(", ", fileExtensions.Take(3).Select(g => $".{g.Key}"));
                 summary += $". Primary file types include {topExtensions}";
             }
-            
+
             summary += ". The codebase has been analyzed for code relationships, dependencies, and semantic understanding.";
 
-            return Ok(new {
+            return Ok(new
+            {
                 Summary = summary,
                 TotalFiles = files.Count,
                 RepositoryName = repo.Name,
@@ -415,7 +426,7 @@ public class RepositoriesController : ControllerBase
 
             // Get all commits
             var commits = await _db.GetCommitsByRepository(repositoryId);
-            
+
             // Get all files
             var files = await _db.GetFilesByRepository(repositoryId);
 
@@ -433,11 +444,11 @@ public class RepositoriesController : ControllerBase
             {
                 var authorName = group.Key!;
                 var authorCommits = group.ToList();
-                
+
                 // Try to get real email from users table
                 var user = await _db.GetUserByAuthorName(authorName);
                 var authorEmail = user?.Email ?? authorCommits.First().AuthorEmail ?? authorName;
-                
+
                 var totalAdditions = 0;
                 var totalDeletions = 0;
                 var filesChanged = new HashSet<Guid>();
@@ -447,7 +458,7 @@ public class RepositoriesController : ControllerBase
                 {
                     if (lastCommit == null || commit.CommittedAt > lastCommit)
                         lastCommit = commit.CommittedAt;
-                    
+
                     var changes = await _db.GetFileChangesByCommit(commit.Id);
                     foreach (var change in changes)
                     {
@@ -459,7 +470,8 @@ public class RepositoriesController : ControllerBase
 
                 var isActive = lastCommit.HasValue && lastCommit.Value >= sevenDaysAgo;
 
-                contributorDetails.Add(new {
+                contributorDetails.Add(new
+                {
                     Name = authorName,
                     Email = authorEmail,
                     Commits = authorCommits.Count,
@@ -473,7 +485,8 @@ public class RepositoriesController : ControllerBase
 
             // Calculate ownership distribution by file type
             var ownershipData = new List<object>();
-            var fileTypeGroups = files.GroupBy(f => {
+            var fileTypeGroups = files.GroupBy(f =>
+            {
                 var ext = Path.GetExtension(f.FilePath);
                 return string.IsNullOrEmpty(ext) ? "other" : ext.TrimStart('.');
             }).Take(5);
@@ -481,7 +494,7 @@ public class RepositoriesController : ControllerBase
             foreach (var typeGroup in fileTypeGroups)
             {
                 var ownershipByType = new Dictionary<string, int>();
-                
+
                 foreach (var file in typeGroup)
                 {
                     var ownership = await _db.GetFileOwnership(file.Id);
@@ -489,7 +502,7 @@ public class RepositoriesController : ControllerBase
                     {
                         var topOwner = ownership.OrderByDescending(o => o.SemanticScore).First();
                         var ownerName = topOwner.AuthorName;
-                        
+
                         if (!ownershipByType.ContainsKey(ownerName))
                             ownershipByType[ownerName] = 0;
                         ownershipByType[ownerName]++;
@@ -513,11 +526,12 @@ public class RepositoriesController : ControllerBase
 
             var mostActiveDay = dayCommits?.Day.ToString() ?? "N/A";
 
-            return Ok(new {
+            return Ok(new
+            {
                 TotalContributors = contributorDetails.Count,
                 ActiveContributors = contributorDetails.Count(c => ((dynamic)c).Active),
-                AvgCommitsPerContributor = contributorDetails.Count > 0 
-                    ? (commits.Count / (double)contributorDetails.Count).ToString("F1") 
+                AvgCommitsPerContributor = contributorDetails.Count > 0
+                    ? (commits.Count / (double)contributorDetails.Count).ToString("F1")
                     : "0",
                 MostActiveDay = mostActiveDay,
                 Contributors = contributorDetails.OrderByDescending(c => ((dynamic)c).Commits).ToList(),
@@ -529,3 +543,279 @@ public class RepositoriesController : ControllerBase
             return BadRequest(new { error = ex.Message });
         }
     }
+
+    [HttpGet("files/{fileId}/enhanced-analysis")]
+    public async Task<IActionResult> GetFileEnhancedAnalysis(Guid fileId)
+    {
+        try
+        {
+            var file = await _db.GetFileById(fileId);
+            if (file == null) return NotFound();
+
+            // Get file embeddings for similarity calculation
+            var fileEmbeddings = await _db.GetEmbeddingsByFile(fileId);
+            float[]? currentFileEmbedding = fileEmbeddings.Any() ? fileEmbeddings.First().Embedding : null;
+
+            // Get file changes history
+            var fileChanges = await _db.GetFileChangesByFile(fileId);
+            var changeHistory = fileChanges
+                .OrderByDescending(fc => fc.Additions + fc.Deletions)
+                .Take(15)
+                .Select(fc => new
+                {
+                    Additions = fc.Additions ?? 0,
+                    Deletions = fc.Deletions ?? 0,
+                    CommitId = fc.CommitId
+                })
+                .ToList();
+
+            // Calculate total changes
+            var totalChanges = fileChanges.Count;
+            var totalAdditions = fileChanges.Sum(fc => fc.Additions ?? 0);
+            var totalDeletions = fileChanges.Sum(fc => fc.Deletions ?? 0);
+
+            // Get dependencies
+            var dependencies = await _db.GetDependenciesForFile(fileId);
+            var dependencyList = new List<object>();
+            var directDependencyIds = new HashSet<Guid>();
+
+            foreach (var dep in dependencies)
+            {
+                directDependencyIds.Add(dep.TargetFileId);
+                var targetFile = await _db.GetFileById(dep.TargetFileId);
+                if (targetFile != null)
+                {
+                    // Calculate semantic similarity score
+                    var semanticScore = await CalculateSemanticSimilarity(currentFileEmbedding, dep.TargetFileId);
+
+                    dependencyList.Add(new
+                    {
+                        TargetFileId = dep.TargetFileId,
+                        TargetPath = targetFile.FilePath,
+                        DependencyType = dep.DependencyType ?? "import",
+                        Score = semanticScore ?? (dep.Strength ?? 1) // Use semantic score, fallback to strength
+                    });
+                }
+            }
+
+            // Get indirect dependencies (recursive) with semantic scores
+            // Only include files with semantic score > 0.7 (highly similar)
+            var allDependencies = await GetAllDependenciesRecursive(fileId, new HashSet<Guid>());
+            var indirectDependencyList = new List<object>();
+
+            foreach (var d in allDependencies.Where(d => !directDependencyIds.Contains(d.FileId)).DistinctBy(d => d.FileId))
+            {
+                var semanticScore = await CalculateSemanticSimilarity(currentFileEmbedding, d.FileId);
+
+                // Only add if semantic score > 0.7 (highly similar files)
+                if (semanticScore.HasValue && semanticScore.Value > 0.7)
+                {
+                    indirectDependencyList.Add(new
+                    {
+                        TargetFileId = d.FileId,
+                        TargetPath = d.FilePath,
+                        DependencyType = "indirect",
+                        Score = semanticScore.Value
+                    });
+                }
+            }
+
+            // Get dependents (files that depend on this file)
+            var dependents = await _db.GetDependentsForFile(fileId);
+            var dependentList = new List<object>();
+            var directDependentIds = new HashSet<Guid>();
+
+            foreach (var dep in dependents)
+            {
+                directDependentIds.Add(dep.SourceFileId);
+                var sourceFile = await _db.GetFileById(dep.SourceFileId);
+                if (sourceFile != null)
+                {
+                    // Calculate semantic similarity score
+                    var semanticScore = await CalculateSemanticSimilarity(currentFileEmbedding, dep.SourceFileId);
+
+                    dependentList.Add(new
+                    {
+                        SourceFileId = dep.SourceFileId,
+                        SourcePath = sourceFile.FilePath,
+                        DependencyType = dep.DependencyType ?? "import",
+                        Score = semanticScore ?? (dep.Strength ?? 1) // Use semantic score, fallback to strength
+                    });
+                }
+            }
+
+            // Get blast radius (recursive dependents) with semantic scores
+            // Only include files with semantic score > 0.7 (highly similar)
+            var allDependents = await GetAllDependentsRecursive(fileId, new HashSet<Guid>());
+            var blastRadiusList = new List<object>();
+
+            foreach (var d in allDependents.Where(d => !directDependentIds.Contains(d.FileId)).DistinctBy(d => d.FileId))
+            {
+                var semanticScore = await CalculateSemanticSimilarity(currentFileEmbedding, d.FileId);
+
+                // Only add if semantic score > 0.7 (highly similar files)
+                if (semanticScore.HasValue && semanticScore.Value > 0.7)
+                {
+                    blastRadiusList.Add(new
+                    {
+                        SourceFileId = d.FileId,
+                        SourcePath = d.FilePath,
+                        DependencyType = "indirect",
+                        Score = semanticScore.Value
+                    });
+                }
+            }
+
+            // Get semantic neighbors (files with similar embeddings)
+            var embeddings = await _db.GetEmbeddingsByFile(fileId);
+            var semanticNeighbors = new List<object>();
+
+            if (embeddings.Any())
+            {
+                // Use the first embedding chunk for similarity search
+                var similarFiles = await _db.FindSimilarFiles(embeddings.First().Embedding!, file.RepositoryId, fileId, 5);
+                semanticNeighbors = similarFiles.Select(sf => new
+                {
+                    FileId = sf.File.Id,
+                    FilePath = sf.File.FilePath,
+                    Similarity = sf.Similarity
+                }).ToList<object>();
+            }
+
+            // Calculate complexity metrics from file data
+            var linesCount = file.TotalLines ?? 0;
+            var extension = Path.GetExtension(file.FilePath)?.TrimStart('.') ?? "";
+            var isCodeFile = new[] { "js", "ts", "tsx", "jsx", "py", "java", "cs", "cpp", "c", "go", "rb" }.Contains(extension);
+
+            // Basic heuristics for complexity
+            var cyclomaticComplexity = isCodeFile ? Math.Min(linesCount / 10, 50) : 0;
+            var maintainability = isCodeFile ? Math.Max(100 - (totalChanges * 2), 40) : 100;
+            var codeSmells = totalChanges > 20 ? (totalChanges / 10) : 0;
+
+            return Ok(new
+            {
+                FileId = fileId,
+                FilePath = file.FilePath,
+                TotalLines = linesCount,
+                TotalChanges = totalChanges,
+                TotalAdditions = totalAdditions,
+                TotalDeletions = totalDeletions,
+                ChangeHistory = changeHistory,
+                Dependencies = dependencyList,
+                IndirectDependencies = indirectDependencyList,
+                Dependents = dependentList,
+                BlastRadius = blastRadiusList,
+                SemanticNeighbors = semanticNeighbors,
+                Metrics = new
+                {
+                    CyclomaticComplexity = cyclomaticComplexity,
+                    Maintainability = maintainability,
+                    TestCoverage = 0, // Would need test files analysis
+                    CodeSmells = codeSmells,
+                    TechnicalDebt = totalChanges > 30 ? (totalChanges / 5) : 0
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    private async Task<List<FileRef>> GetAllDependenciesRecursive(Guid fileId, HashSet<Guid> visited)
+    {
+        var result = new List<FileRef>();
+        if (visited.Contains(fileId)) return result;
+        visited.Add(fileId);
+
+        var dependencies = await _db.GetDependenciesForFile(fileId);
+        foreach (var dep in dependencies)
+        {
+            // Avoid cycles
+            if (visited.Contains(dep.TargetFileId)) continue;
+
+            var targetFile = await _db.GetFileById(dep.TargetFileId);
+            if (targetFile != null)
+            {
+                result.Add(new FileRef { FileId = targetFile.Id, FilePath = targetFile.FilePath });
+
+                // Recurse
+                var subDeps = await GetAllDependenciesRecursive(targetFile.Id, visited);
+                result.AddRange(subDeps);
+            }
+        }
+        return result;
+    }
+
+    private async Task<List<FileRef>> GetAllDependentsRecursive(Guid fileId, HashSet<Guid> visited)
+    {
+        var result = new List<FileRef>();
+        if (visited.Contains(fileId)) return result;
+        visited.Add(fileId);
+
+        var dependents = await _db.GetDependentsForFile(fileId);
+        foreach (var dep in dependents)
+        {
+            // Avoid cycles
+            if (visited.Contains(dep.SourceFileId)) continue;
+
+            var sourceFile = await _db.GetFileById(dep.SourceFileId);
+            if (sourceFile != null)
+            {
+                result.Add(new FileRef { FileId = sourceFile.Id, FilePath = sourceFile.FilePath });
+
+                // Recurse
+                var subDeps = await GetAllDependentsRecursive(sourceFile.Id, visited);
+                result.AddRange(subDeps);
+            }
+        }
+        return result;
+    }
+
+    private async Task<double?> CalculateSemanticSimilarity(float[]? sourceEmbedding, Guid targetFileId)
+    {
+        if (sourceEmbedding == null) return null;
+
+        // Get target file embedding
+        var targetEmbeddings = await _db.GetEmbeddingsByFile(targetFileId);
+        if (!targetEmbeddings.Any() || targetEmbeddings.First().Embedding == null)
+            return null;
+
+        var targetEmbedding = targetEmbeddings.First().Embedding!;
+
+        // Calculate cosine similarity
+        double dotProduct = 0;
+        double sourceNorm = 0;
+        double targetNorm = 0;
+
+        for (int i = 0; i < Math.Min(sourceEmbedding.Length, targetEmbedding.Length); i++)
+        {
+            dotProduct += sourceEmbedding[i] * targetEmbedding[i];
+            sourceNorm += sourceEmbedding[i] * sourceEmbedding[i];
+            targetNorm += targetEmbedding[i] * targetEmbedding[i];
+        }
+
+        sourceNorm = Math.Sqrt(sourceNorm);
+        targetNorm = Math.Sqrt(targetNorm);
+
+        if (sourceNorm == 0 || targetNorm == 0) return null;
+
+        // Cosine similarity: ranges from -1 to 1, but for code it's typically 0 to 1
+        var cosineSimilarity = dotProduct / (sourceNorm * targetNorm);
+
+        // Round to 2 decimal places for readability
+        return Math.Round(Math.Max(0, cosineSimilarity), 2);
+    }
+
+    private class FileRef
+    {
+        public Guid FileId { get; set; }
+        public string FilePath { get; set; } = string.Empty;
+    }
+}
+
+public class AnalyzeUrlRequest
+{
+    public string Url { get; set; } = string.Empty;
+    public Guid UserId { get; set; }
+}
