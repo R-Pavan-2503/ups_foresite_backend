@@ -109,6 +109,16 @@ public class PrFileChanged
     public Guid FileId { get; set; }
 }
 
+public class PrConflict
+{
+    public Guid ConflictingPrId { get; set; }
+    public int PrNumber { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public List<string> OverlappingFiles { get; set; } = new();
+    public int OverlapCount { get; set; }
+    public decimal ConflictPercentage { get; set; }
+}
+
 public class Review
 {
     public Guid Id { get; set; }

@@ -68,18 +68,21 @@ public interface IDatabaseService
     // File Ownership
     Task UpsertFileOwnership(FileOwnership ownership);
     Task<List<FileOwnership>> GetFileOwnership(Guid fileId);
+    Task<string?> GetMostActiveAuthorForFile(Guid fileId);
 
-     // Pull Requests
+    // Pull Requests
     Task<PullRequest?> GetPullRequestByNumber(Guid repositoryId, int prNumber);
     Task<PullRequest> CreatePullRequest(PullRequest pr);
     Task<List<PullRequest>> GetOpenPullRequests(Guid repositoryId);
     Task<List<PullRequest>> GetAllPullRequests(Guid repositoryId);
     Task UpdatePullRequestState(Guid prId, string state);
     Task UpdatePullRequestTitle(Guid prId, string title);
+    Task DeletePrFilesChangedByPrId(Guid prId);  // NEW: Clean up files for specific PR
 
     // PR Files
     Task CreatePrFileChanged(PrFileChanged prFile);
     Task<List<RepositoryFile>> GetPrFiles(Guid prId);
+    Task<List<PrConflict>> GetPotentialConflicts(Guid prId, Guid repositoryId);  // NEW: Detect conflicts with other open PRs
 
     // Webhook Queue
     Task<long> EnqueueWebhook(string payload);
