@@ -52,26 +52,26 @@ public class PullRequestsController : ControllerBase
 
             // Get PR from GitHub API
             var pr = await _github.GetPullRequest(owner, repo, prNumber, accessToken);
-
+            
             // Get files changed
             var files = await _github.GetPullRequestFiles(owner, repo, prNumber, accessToken);
-
+            
             // ✨ NEW: Get repository from database to access file ownership and conflicts
             var repository = await _db.GetRepositoryByName(owner, repo);
             List<object>? recommendedReviewers = null;
             List<PrConflict>? potentialConflicts = null;
-
+            
             if (repository != null)
             {
                 // Get PR from database
                 var dbPr = await _db.GetPullRequestByNumber(repository.Id, prNumber);
-
+                
                 if (dbPr != null)
                 {
                     // ✨ Feature 1: Aggregate recommended reviewers across all files
                     var prFiles = await _db.GetPrFiles(dbPr.Id);
                     var authorTotals = new Dictionary<string, (decimal score, int fileCount, string? avatarUrl, string? email)>();
-
+                    
                     foreach (var file in prFiles)
                     {
                         var ownership = await _db.GetFileOwnership(file.Id);
@@ -83,7 +83,7 @@ public class PullRequestsController : ControllerBase
                                 var user = await _db.GetUserByAuthorName(ownerRecord.AuthorName);
                                 authorTotals[ownerRecord.AuthorName] = (0m, 0, user?.AvatarUrl, user?.Email);
                             }
-
+                            
                             var current = authorTotals[ownerRecord.AuthorName];
                             authorTotals[ownerRecord.AuthorName] = (
                                 current.score + (ownerRecord.SemanticScore ?? 0m),
@@ -93,7 +93,7 @@ public class PullRequestsController : ControllerBase
                             );
                         }
                     }
-
+                    
                     // Sort by total score and take top 2
                     var totalScore = authorTotals.Values.Sum(v => v.score);
                     recommendedReviewers = authorTotals
@@ -110,12 +110,12 @@ public class PullRequestsController : ControllerBase
                         })
                         .Cast<object>()
                         .ToList();
-
+                    
                     // ✨ Feature 2: Detect potential merge conflicts
                     potentialConflicts = await _db.GetPotentialConflicts(dbPr.Id, repository.Id);
                 }
             }
-
+            
             // Return comprehensive details (preserving existing structure)
             return Ok(new
             {

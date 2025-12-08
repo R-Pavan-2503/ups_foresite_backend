@@ -45,6 +45,7 @@ public class AnalysisService : IAnalysisService
         _github = github;
         _logger = logger;
     }
+
     public async Task AnalyzeRepository(string owner, string repoName, Guid repositoryId, Guid userId)
     {
         _logger.LogInformation($"🚀 Starting COMPLETE analysis of {owner}/{repoName}");
@@ -120,7 +121,7 @@ public class AnalysisService : IAnalysisService
                         if (commit == null)
                         {
                             isNewCommit = true;
-
+                            
                             var authorEmail = gitCommit.Author.Email ?? "unknown@example.com";
                             var authorName = gitCommit.Author.Name ?? "unknown";
 
@@ -137,13 +138,13 @@ public class AnalysisService : IAnalysisService
 
                             // NEVER store noreply emails - use user's email or null
                             var commitEmail = authorUser.Email;
-                            if (string.IsNullOrWhiteSpace(commitEmail) &&
-                                !string.IsNullOrWhiteSpace(authorEmail) &&
+                            if (string.IsNullOrWhiteSpace(commitEmail) && 
+                                !string.IsNullOrWhiteSpace(authorEmail) && 
                                 !authorEmail.Contains("@users.noreply.github.com"))
                             {
                                 commitEmail = authorEmail; // Only use real emails
                             }
-
+                            
                             commit = await _db.CreateCommit(new DbCommit
                             {
                                 RepositoryId = repositoryId,
@@ -234,7 +235,6 @@ public class AnalysisService : IAnalysisService
         }
     }
 
-
     // ---------------------------------------------------------------------
     // Helper: Get or create a user record for an author
     // Email-first approach: Only call GitHub API for unknown emails
@@ -250,7 +250,7 @@ public class AnalysisService : IAnalysisService
         // Step 1: Parse noreply emails to extract GitHub username and ID
         string? githubUsername = null;
         long githubId = 0;
-
+        
         if (!string.IsNullOrWhiteSpace(email) && email.Contains("@users.noreply.github.com"))
         {
             var parts = email.Split('@')[0].Split('+');
@@ -271,10 +271,10 @@ public class AnalysisService : IAnalysisService
                 _logger.LogInformation($"✅ Found existing user by email '{email}': {existingByEmail.AuthorName}");
                 return existingByEmail;
             }
-
+            
             // Email not found - need to call GitHub API to get real username
             _logger.LogInformation($"🔍 Unknown email '{email}' - calling GitHub API for commit {commitSha[..7]}");
-
+            
             try
             {
                 var commitAuthor = await _github.GetCommitAuthor(repoOwner, repoName, commitSha);
@@ -314,7 +314,7 @@ public class AnalysisService : IAnalysisService
                     return existingById;
                 }
             }
-
+            
             // Then try by GitHub username
             var existingByUsername = await _db.GetUserByAuthorName(githubUsername);
             if (existingByUsername != null)
@@ -328,7 +328,7 @@ public class AnalysisService : IAnalysisService
                 }
                 return existingByUsername;
             }
-
+            
             // User doesn't exist - ALWAYS call GitHub API to get real username before creating
             if (string.IsNullOrWhiteSpace(email) || email.Contains("@users.noreply.github.com"))
             {
@@ -349,10 +349,10 @@ public class AnalysisService : IAnalysisService
                     _logger.LogWarning($"⚠️ GitHub API call failed: {ex.Message}");
                 }
             }
-
+            
             // Create user - set email to null for noreply, or use real email
             var userEmail = email != null && email.Contains("@users.noreply.github.com") ? null : email;
-
+            
             var newUser = await _db.CreateUser(new User
             {
                 GithubId = githubId,
@@ -360,7 +360,7 @@ public class AnalysisService : IAnalysisService
                 Email = userEmail,
                 AvatarUrl = $"https://ui-avatars.com/api/?name={Uri.EscapeDataString(githubUsername)}"
             });
-
+            
             _logger.LogInformation($"➕ Created new user: {githubUsername} (GitHub ID: {githubId}, Email: {userEmail ?? "none"})");
             return newUser;
         }
@@ -368,13 +368,13 @@ public class AnalysisService : IAnalysisService
         // Step 4: Fallback - couldn't get GitHub username (API failed or noreply parse failed)
         // Use Git config name as last resort
         _logger.LogWarning($"⚠️ Could not resolve GitHub username for '{username}' - using Git config name as fallback");
-
+        
         var fallbackUser = await _db.GetUserByAuthorName(username);
         if (fallbackUser != null)
         {
             return fallbackUser;
         }
-
+        
         var fallbackEmail = email != null && email.Contains("@users.noreply.github.com") ? null : email;
         var createdFallbackUser = await _db.CreateUser(new User
         {
@@ -383,7 +383,7 @@ public class AnalysisService : IAnalysisService
             Email = fallbackEmail,
             AvatarUrl = $"https://ui-avatars.com/api/?name={Uri.EscapeDataString(username)}"
         });
-
+        
         _logger.LogWarning($"➕ Created fallback user: {username}");
         return createdFallbackUser;
     }
@@ -473,19 +473,19 @@ public class AnalysisService : IAnalysisService
         // Dependency creation based on imports
         // -----------------------------------------------------------------
         _logger.LogInformation($"🔍 Analyzing dependencies for {filePath}. Found {parseResult.Imports.Count} imports.");
-
+        
         foreach (var import in parseResult.Imports)
         {
             try
             {
                 _logger.LogInformation($"  👉 Processing import: '{import.Module}'");
                 var targetPath = await ResolveImportPathAsync(filePath, import.Module, language, commit.RepositoryId);
-
+                
                 if (targetPath != null)
                 {
                     _logger.LogInformation($"    ✅ Resolved path: {targetPath}");
                     var targetFile = await _db.GetFileByPath(commit.RepositoryId, targetPath);
-
+                    
                     if (targetFile != null)
                     {
                         await _db.CreateDependency(new Dependency
@@ -667,178 +667,181 @@ public class AnalysisService : IAnalysisService
     // Register GitHub webhook via the GitHub service
     // ---------------------------------------------------------------------
     // ---------------------------------------------------------------------
-    // Register GitHub webhook via the GitHub service
-    // ---------------------------------------------------------------------
-    private async Task RegisterWebhook(string owner, string repo)
+// Register GitHub webhook via the GitHub service
+// ---------------------------------------------------------------------
+private async Task RegisterWebhook(string owner, string repo)
+{
+    try
     {
-        try
-        {
-            await _github.RegisterWebhook(owner, repo);
-            _logger.LogInformation($"✅ Webhook registered for {owner}/{repo}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning($"⚠️ Failed to register webhook for {owner}/{repo}. Error: {ex.Message}");
-            _logger.LogWarning($"   Ensure the GitHub App is installed on this repository and has 'write' permissions for webhooks.");
-        }
+        await _github.RegisterWebhook(owner, repo);
+        _logger.LogInformation($"✅ Webhook registered for {owner}/{repo}");
     }
-
-    // ---------------------------------------------------------------------
-    // Fetch and store pull requests from GitHub API
-    // ---------------------------------------------------------------------
-    private async Task FetchAndStorePullRequests(string owner, string repo, Guid repositoryId)
+    catch (Exception ex)
     {
-        try
+        _logger.LogWarning($"⚠️ Failed to register webhook for {owner}/{repo}. Error: {ex.Message}");
+        _logger.LogWarning($"   Ensure the GitHub App is installed on this repository and has 'write' permissions for webhooks.");
+    }
+}
+
+// ---------------------------------------------------------------------
+// Fetch and store pull requests from GitHub API
+// ---------------------------------------------------------------------
+private async Task FetchAndStorePullRequests(string owner, string repo, Guid repositoryId)
+{
+   try
+    {
+        _logger.LogInformation($"📋 Attempting to fetch PRs for: {owner}/{repo}");
+        _logger.LogInformation($"   Repository ID: {repositoryId}");
+        
+        // Fetch ALL pull requests (open and closed)
+        var openRequest = new Octokit.PullRequestRequest { State = Octokit.ItemStateFilter.Open };
+        var closedRequest = new Octokit.PullRequestRequest { State = Octokit.ItemStateFilter.Closed };
+        
+        _logger.LogInformation($"   🔍 Fetching open PRs from GitHub API...");
+        var openPRs = await _github.GetPullRequests(owner, repo, openRequest);
+        _logger.LogInformation($"   ✅ Fetched {openPRs.Count} open PRs");
+        
+        _logger.LogInformation($"   🔍 Fetching closed PRs from GitHub API...");
+        var closedPRs = await _github.GetPullRequests(owner, repo, closedRequest);
+        
+        var allPRs = openPRs.Concat(closedPRs).ToList();
+        _logger.LogInformation($"   Found {allPRs.Count} total pull requests ({openPRs.Count} open, {closedPRs.Count} closed)");
+
+        int createdCount = 0;
+        int skippedCount = 0;
+
+        foreach (var pr in allPRs)
         {
-            _logger.LogInformation($"📋 Attempting to fetch PRs for: {owner}/{repo}");
-            _logger.LogInformation($"   Repository ID: {repositoryId}");
-
-            // Fetch ALL pull requests (open and closed)
-            var openRequest = new Octokit.PullRequestRequest { State = Octokit.ItemStateFilter.Open };
-            var closedRequest = new Octokit.PullRequestRequest { State = Octokit.ItemStateFilter.Closed };
-
-            _logger.LogInformation($"   🔍 Fetching open PRs from GitHub API...");
-            var openPRs = await _github.GetPullRequests(owner, repo, openRequest);
-            _logger.LogInformation($"   ✅ Fetched {openPRs.Count} open PRs");
-
-            _logger.LogInformation($"   🔍 Fetching closed PRs from GitHub API...");
-            var closedPRs = await _github.GetPullRequests(owner, repo, closedRequest);
-
-            var allPRs = openPRs.Concat(closedPRs).ToList();
-            _logger.LogInformation($"   Found {allPRs.Count} total pull requests ({openPRs.Count} open, {closedPRs.Count} closed)");
-
-            int createdCount = 0;
-            int skippedCount = 0;
-
-            foreach (var pr in allPRs)
+            try
             {
-                try
+                // Check if PR already exists
+                var existing = await _db.GetPullRequestByNumber(repositoryId, pr.Number);
+                if (existing != null)
                 {
-                    // Check if PR already exists
-                    var existing = await _db.GetPullRequestByNumber(repositoryId, pr.Number);
-                    if (existing != null)
+                    // Backfill title if missing
+                    if (string.IsNullOrEmpty(existing.Title) && !string.IsNullOrEmpty(pr.Title))
                     {
-                        // Backfill title if missing
-                        if (string.IsNullOrEmpty(existing.Title) && !string.IsNullOrEmpty(pr.Title))
+                        await _db.UpdatePullRequestTitle(existing.Id, pr.Title);
+                        _logger.LogInformation($"   Updated title for PR #{pr.Number}");
+                    }
+                    
+                    // ✨ NEW: Sync PR state from GitHub
+                    var githubState = pr.State.StringValue; // "open", "closed"
+                    var dbState = existing.State ?? "unknown";
+                    
+                    if (!githubState.Equals(dbState, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // State has changed - update database
+                        await _db.UpdatePullRequestState(existing.Id, githubState);
+                        _logger.LogInformation($"   ✅ Updated PR #{pr.Number} state: {dbState} → {githubState}");
+                        
+                        // If PR was closed/merged, clean up pr_files_changed table
+                        if (githubState.Equals("closed", StringComparison.OrdinalIgnoreCase))
                         {
-                            await _db.UpdatePullRequestTitle(existing.Id, pr.Title);
-                            _logger.LogInformation($"   Updated title for PR #{pr.Number}");
+                            await _db.DeletePrFilesChangedByPrId(existing.Id);
+                            _logger.LogInformation($"   🧹 Cleaned up pr_files_changed for closed PR #{pr.Number}");
                         }
-
-                        // ✨ NEW: Sync PR state from GitHub
-                        var githubState = pr.State.StringValue; // "open", "closed"
-                        var dbState = existing.State ?? "unknown";
-
-                        if (!githubState.Equals(dbState, StringComparison.OrdinalIgnoreCase))
-                        {
-                            // State has changed - update database
-                            await _db.UpdatePullRequestState(existing.Id, githubState);
-                            _logger.LogInformation($"   ✅ Updated PR #{pr.Number} state: {dbState} → {githubState}");
-
-                            // If PR was closed/merged, clean up pr_files_changed table
-                            if (githubState.Equals("closed", StringComparison.OrdinalIgnoreCase))
-                            {
-                                await _db.DeletePrFilesChangedByPrId(existing.Id);
-                                _logger.LogInformation($"   🧹 Cleaned up pr_files_changed for closed PR #{pr.Number}");
-                            }
-                        }
-
-                        skippedCount++;
-                        continue;
                     }
+                    
+                    skippedCount++;
+                    continue;
+                }
 
-                    // Get or create author user - we have full GitHub data for PRs
-                    var authorGithubId = pr.User.Id; // Real GitHub ID
-                    var authorEmail = pr.User.Email; // Can be null - that's OK
-                    var authorUsername = pr.User.Login; // Real GitHub username
-
-                    // For PRs, we have real GitHub data so we can directly create/find user
-                    var author = await _db.GetUserByGitHubId(authorGithubId);
-                    if (author == null)
+                // Get or create author user - we have full GitHub data for PRs
+                var authorGithubId = pr.User.Id; // Real GitHub ID
+                var authorEmail = pr.User.Email; // Can be null - that's OK
+                var authorUsername = pr.User.Login; // Real GitHub username
+                
+                // For PRs, we have real GitHub data so we can directly create/find user
+                var author = await _db.GetUserByGitHubId(authorGithubId);
+                if (author == null)
+                {
+                    author = await _db.GetUserByAuthorName(authorUsername);
+                }
+                if (author == null)
+                {
+                    author = await _db.CreateUser(new User
                     {
-                        author = await _db.GetUserByAuthorName(authorUsername);
-                    }
-                    if (author == null)
-                    {
-                        author = await _db.CreateUser(new User
-                        {
-                            GithubId = authorGithubId,
-                            AuthorName = authorUsername,
-                            Email = authorEmail,
-                            AvatarUrl = pr.User.AvatarUrl ?? $"https://ui-avatars.com/api/?name={Uri.EscapeDataString(authorUsername)}"
-                        });
-                        _logger.LogInformation($"➕ Created user from PR: {authorUsername}");
-                    }
-
-                    // Create PR record
-                    var dbPr = await _db.CreatePullRequest(new PullRequest
-                    {
-                        RepositoryId = repositoryId,
-                        PrNumber = pr.Number,
-                        Title = pr.Title,
-                        State = pr.State.StringValue,
-                        AuthorId = author.Id
+                        GithubId = authorGithubId,
+                        AuthorName = authorUsername,
+                        Email = authorEmail,
+                        AvatarUrl = pr.User.AvatarUrl ?? $"https://ui-avatars.com/api/?name={Uri.EscapeDataString(authorUsername)}"
                     });
+                    _logger.LogInformation($"➕ Created user from PR: {authorUsername}");
+                }
 
-                    // Fetch and store PR file changes ONLY for open PRs
-                    if (pr.State.StringValue.Equals("open", StringComparison.OrdinalIgnoreCase))
+                // Create PR record
+                var dbPr = await _db.CreatePullRequest(new PullRequest
+                {
+                    RepositoryId = repositoryId,
+                    PrNumber = pr.Number,
+                    Title = pr.Title,
+                    State = pr.State.StringValue,
+                    AuthorId = author.Id
+                });
+
+                // Fetch and store PR file changes ONLY for open PRs
+                if (pr.State.StringValue.Equals("open", StringComparison.OrdinalIgnoreCase))
+                {
+                    var prFiles = await _github.GetPullRequestFiles(owner, repo, pr.Number);
+                    _logger.LogInformation($"   PR #{pr.Number}: {prFiles.Count} files changed");
+
+                    foreach (var prFile in prFiles)
                     {
-                        var prFiles = await _github.GetPullRequestFiles(owner, repo, pr.Number);
-                        _logger.LogInformation($"   PR #{pr.Number}: {prFiles.Count} files changed");
-
-                        foreach (var prFile in prFiles)
+                        // Find or create the file in our database
+                        var file = await _db.GetFileByPath(repositoryId, prFile.FileName);
+                        if (file == null)
                         {
-                            // Find or create the file in our database
-                            var file = await _db.GetFileByPath(repositoryId, prFile.FileName);
-                            if (file == null)
+                            // File doesn't exist yet (likely in a feature branch)
+                            // Create it so PR files can be tracked
+                            _logger.LogInformation($"     ➕ Creating file record for '{prFile.FileName}' from PR #{pr.Number}");
+                            file = await _db.CreateFile(new RepositoryFile
                             {
-                                // File doesn't exist yet (likely in a feature branch)
-                                // Create it so PR files can be tracked
-                                _logger.LogInformation($"     ➕ Creating file record for '{prFile.FileName}' from PR #{pr.Number}");
-                                file = await _db.CreateFile(new RepositoryFile
-                                {
-                                    RepositoryId = repositoryId,
-                                    FilePath = prFile.FileName,
-                                    TotalLines = null // We don't have this info yet
-                                });
-                            }
-
-                            // Now add to PR files changed
-                            await _db.CreatePrFileChanged(new PrFileChanged
-                            {
-                                PrId = dbPr.Id,
-                                FileId = file.Id
+                                RepositoryId = repositoryId,
+                                FilePath = prFile.FileName,
+                                TotalLines = null // We don't have this info yet
                             });
                         }
-                    }
-                    else
-                    {
-                        _logger.LogInformation($"   PR #{pr.Number}: Skipping file storage for closed PR");
-                    }
 
-                    createdCount++;
+                        // Now add to PR files changed
+                        await _db.CreatePrFileChanged(new PrFileChanged
+                        {
+                            PrId = dbPr.Id,
+                            FileId = file.Id
+                        });
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogWarning($"   ⚠️ Failed to process PR #{pr.Number}: {ex.Message}");
+                    _logger.LogInformation($"   PR #{pr.Number}: Skipping file storage for closed PR");
                 }
-            }
 
-            _logger.LogInformation($"✅ Stored {createdCount} pull requests, skipped {skippedCount} existing");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError($"❌ Failed to fetch pull requests for {owner}/{repo}");
-            _logger.LogError($"   Error Type: {ex.GetType().Name}");
-            _logger.LogError($"   Error Message: {ex.Message}");
-            if (ex.InnerException != null)
-            {
-                _logger.LogError($"   Inner Exception: {ex.InnerException.Message}");
+                createdCount++;
             }
-            _logger.LogError($"   Stack Trace: {ex.StackTrace}");
-            // Don't throw - PR fetching is not critical for analysis
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"   ⚠️ Failed to process PR #{pr.Number}: {ex.Message}");
+            }
         }
+
+        _logger.LogInformation($"✅ Stored {createdCount} pull requests, skipped {skippedCount} existing");
     }
+    catch (Exception ex)
+    {
+        _logger.LogError($"❌ Failed to fetch pull requests for {owner}/{repo}");
+        _logger.LogError($"   Error Type: {ex.GetType().Name}");
+        _logger.LogError($"   Error Message: {ex.Message}");
+        if (ex.InnerException != null)
+        {
+            _logger.LogError($"   Inner Exception: {ex.InnerException.Message}");
+        }
+        _logger.LogError($"   Stack Trace: {ex.StackTrace}");
+        // Don't throw - PR fetching is not critical for analysis
+    }
+}
+
+
+
 
     //---------------------------------------------------------------------
     // Helper: Resolve import paths using repository files from database
@@ -848,13 +851,13 @@ public class AnalysisService : IAnalysisService
         // Normalize paths
         sourceFile = sourceFile.Replace("\\", "/");
         var sourceDir = Path.GetDirectoryName(sourceFile)?.Replace("\\", "/");
-
+        
         // Handle empty sourceDir (file in root directory)
         if (string.IsNullOrEmpty(sourceDir))
         {
             sourceDir = "";
         }
-
+        
         _logger.LogInformation($"    Resolving '{importModule}' from '{sourceDir}' (Language: {language})");
 
 
@@ -875,15 +878,15 @@ public class AnalysisService : IAnalysisService
                 // Combine with source directory
                 combinedPath = sourceDir + "/" + importModule;
             }
-
+            
             // Use Path.GetFullPath with a fake root to resolve .. and .
             var fakeRoot = "C:\\fakeroot";  // Use Windows path for GetFullPath
             var combined = Path.Combine(fakeRoot, combinedPath.Replace("/", "\\"));
-
+            
             try
             {
                 var resolved = Path.GetFullPath(combined);
-
+                
                 // Check if path went above root
                 if (!resolved.StartsWith(fakeRoot, StringComparison.OrdinalIgnoreCase))
                 {
@@ -908,7 +911,7 @@ public class AnalysisService : IAnalysisService
             // Try to find it in the repository
             var allFiles = await _db.GetFilesByRepository(repositoryId);
             var matches = allFiles.Where(f => f.FilePath.Contains(importModule)).ToList();
-
+            
             if (matches.Count == 1)
             {
                 return matches[0].FilePath;
@@ -916,7 +919,7 @@ public class AnalysisService : IAnalysisService
             else if (matches.Count > 1)
             {
                 // Prefer exact match
-                var exact = matches.FirstOrDefault(f =>
+                var exact = matches.FirstOrDefault(f => 
                     f.FilePath.EndsWith("/" + importModule) ||
                     f.FilePath.EndsWith("/" + importModule + ".js") ||
                     f.FilePath.EndsWith("/" + importModule + ".jsx") ||
@@ -924,7 +927,7 @@ public class AnalysisService : IAnalysisService
                     f.FilePath.EndsWith("/" + importModule + ".tsx"));
                 if (exact != null) return exact.FilePath;
             }
-
+            
             // If no match, it's likely an npm package - skip
             return null;
         }
@@ -944,7 +947,7 @@ public class AnalysisService : IAnalysisService
 
         // Get all repository files
         var repoFiles = await _db.GetFilesByRepository(repositoryId);
-
+        
         // Try exact match
         var exactFile = repoFiles.FirstOrDefault(f => f.FilePath.Equals(targetPath, StringComparison.OrdinalIgnoreCase));
         if (exactFile != null) return exactFile.FilePath;
@@ -1067,7 +1070,7 @@ public class AnalysisService : IAnalysisService
                 return;
             }
             using var repo = _repoService.GetRepository(repository.OwnerUsername, repository.Name);
-
+            
             // Always get the Git commit object
             var gitCommit = repo.Lookup(commitSha) as LibGitCommit;
             if (gitCommit == null)
@@ -1075,7 +1078,7 @@ public class AnalysisService : IAnalysisService
                 _logger.LogError($"Commit {commitSha} not found in repository");
                 return;
             }
-
+            
             var commit = await _db.GetCommitBySha(repositoryId, commitSha);
             if (commit == null)
             {
@@ -1092,13 +1095,13 @@ public class AnalysisService : IAnalysisService
                 // For incremental updates we don't have author info – use commit author if available
                 var placeholderEmail = commit.AuthorEmail ?? "incremental@update.com";
                 var placeholderUserId = commit.AuthorUserId ?? Guid.Empty;
-
+                
                 if (placeholderUserId == Guid.Empty)
                 {
                     _logger.LogWarning($"⚠️ No author for incremental update, skipping file {filePath}");
                     continue;
                 }
-
+                
                 await ProcessFile(repo, commit, gitCommit, filePath, placeholderUserId, placeholderEmail);
             }
             _logger.LogInformation($"Incremental update complete for {changedFiles.Count} files");
@@ -1109,5 +1112,4 @@ public class AnalysisService : IAnalysisService
             throw;
         }
     }
-
 }
