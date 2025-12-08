@@ -13,7 +13,7 @@ public class FilesController : ControllerBase
     private readonly ILogger<FilesController> _logger;
 
     public FilesController(
-        IDatabaseService db,
+        IDatabaseService db, 
         IRepositoryService repoService,
         ILogger<FilesController> logger)
     {
@@ -62,7 +62,7 @@ public class FilesController : ControllerBase
         var dependencyDetails = new List<object>();
         foreach (var dep in dependencies)
         {
-            var targetFile = await _db.GetFileById(dep.TargetFileId);
+            var targetFile = await _db. GetFileById(dep.TargetFileId);
             if (targetFile != null)
             {
                 dependencyDetails.Add(new
@@ -91,23 +91,23 @@ public class FilesController : ControllerBase
         // Get ownership details with author names AND user profile data (avatars, emails)
         // Normalize semantic scores to percentages (0-1 range) so they add up to 100%
         var ownershipDetails = new List<object>();
-
+        
         // Calculate total semantic score for normalization
         var totalSemanticScore = ownership
             .Where(o => o.SemanticScore.HasValue)
             .Sum(o => (double)o.SemanticScore.Value);
-
+        
         foreach (var own in ownership)
         {
             var user = await _db.GetUserByAuthorName(own.AuthorName);
-
+            
             // Normalize the score: divide by total so all scores sum to 1.0 (100%)
             var normalizedScore = 0.0;
             if (totalSemanticScore > 0 && own.SemanticScore.HasValue)
             {
                 normalizedScore = Math.Round((double)own.SemanticScore.Value / totalSemanticScore, 4);
             }
-
+            
             ownershipDetails.Add(new
             {
                 authorName = own.AuthorName,
@@ -169,8 +169,8 @@ public class FilesController : ControllerBase
     // Get file content from Git repository
     [HttpGet("{fileId}/content")]
     public async Task<IActionResult> GetFileContent(
-        Guid fileId,
-        [FromQuery] string? commitSha = null,
+        Guid fileId, 
+        [FromQuery] string? commitSha = null, 
         [FromQuery] string? branchName = null)
     {
         try
@@ -186,7 +186,7 @@ public class FilesController : ControllerBase
 
             // Resolve commit with priority: commitSha > branchName > default HEAD
             LibGit2Sharp.Commit? commit = null;
-
+            
             if (!string.IsNullOrEmpty(commitSha))
             {
                 // Priority 1: Specific commit SHA (for commit navigation)
@@ -196,9 +196,9 @@ public class FilesController : ControllerBase
             {
                 // Priority 2: Branch name - resolve to branch tip
                 var normalizedBranchName = branchName.Replace("origin/", "");
-                var branch = repo.Branches[normalizedBranchName]
+                var branch = repo.Branches[normalizedBranchName] 
                              ?? repo.Branches[$"origin/{normalizedBranchName}"];
-
+                
                 if (branch != null)
                 {
                     commit = branch.Tip;

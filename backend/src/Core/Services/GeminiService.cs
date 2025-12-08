@@ -6,6 +6,15 @@ using System.Text.Json;
 
 namespace CodeFamily.Api.Core.Services;
 
+/// <summary>
+/// Gemini API service for generating embeddings.
+/// Uses the text-embedding-004 model which produces 768-dimensional vectors.
+/// 
+/// Stakeholder Value:
+/// - Embeddings measure SEMANTICS, not syntax
+/// - "Lines of code" doesn't equal expertise
+/// - Vector distances capture conceptual understanding
+/// </summary>
 public class GeminiService : IGeminiService
 {
     private readonly string _apiKey;
@@ -25,6 +34,7 @@ public class GeminiService : IGeminiService
         var requestBody = new
         {
             model = "models/text-embedding-004",
+
             content = new
             {
                 parts = new[] { new { text } }
