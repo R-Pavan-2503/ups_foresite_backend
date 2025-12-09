@@ -1423,5 +1423,38 @@ public class DatabaseService : IDatabaseService
         cmd.Parameters.AddWithValue("id", id);
 
         await cmd.ExecuteNonQueryAsync();
+}
+
+    public async Task<List<Commit>> GetCommitsForFile(Guid fileId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            @"SELECT c.id, c.repository_id, c.sha, c.message, c.author_name, c.author_email, c.committed_at 
+              FROM commits c 
+              JOIN file_changes fc ON c.id = fc.commit_id 
+              WHERE fc.file_id = @fileId 
+              ORDER BY c.committed_at DESC",
+            conn);
+
+        cmd.Parameters.AddWithValue("fileId", fileId);
+
+        var commits = new List<Commit>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            commits.Add(new Commit
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                Sha = reader.GetString(2),
+                Message = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AuthorName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                AuthorEmail = reader.IsDBNull(5) ? null : reader.GetString(5),
+                CommittedAt = reader.GetDateTime(6)
+            });
+        }
+        return commits;
     }
 }

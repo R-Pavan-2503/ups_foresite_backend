@@ -54,6 +54,7 @@ public interface IDatabaseService
     Task CreateFileChange(FileChange fileChange);
     Task<List<FileChange>> GetFileChangesByCommit(Guid commitId);
     Task<List<FileChange>> GetFileChangesByFile(Guid fileId);
+    Task<List<Commit>> GetCommitsForFile(Guid fileId);
 
     // Embeddings
     Task<CodeEmbedding> CreateEmbedding(CodeEmbedding embedding);
