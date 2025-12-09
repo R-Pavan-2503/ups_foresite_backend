@@ -6,11 +6,27 @@ using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Load environment variables
+DotNetEnv.Env.Load(Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", ".env"));
+
 // Load settings from settings.json in root directory
 var settingsPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", "settings.json");
 if (File.Exists(settingsPath))
 {
-    builder.Configuration.AddJsonFile(settingsPath, optional: false, reloadOnChange: true);
+    var jsonContent = File.ReadAllText(settingsPath);
+    
+    // Replace ${VAR_NAME} with environment variable values
+    // Using Regex to find all patterns of ${VAR_NAME}
+    var regex = new System.Text.RegularExpressions.Regex(@"\$\{(.+?)\}");
+    jsonContent = regex.Replace(jsonContent, match => 
+    {
+        var varName = match.Groups[1].Value;
+        var envValue = Environment.GetEnvironmentVariable(varName);
+        return envValue ?? match.Value; // Return original if not found
+    });
+
+    var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(jsonContent));
+    builder.Configuration.AddJsonStream(stream);
 }
 
 // Configure AppSettings
