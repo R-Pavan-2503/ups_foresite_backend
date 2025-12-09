@@ -83,6 +83,7 @@ public interface IDatabaseService
     Task CreatePrFileChanged(PrFileChanged prFile);
     Task<List<RepositoryFile>> GetPrFiles(Guid prId);
     Task<List<PrConflict>> GetPotentialConflicts(Guid prId, Guid repositoryId);  // NEW: Detect conflicts with other open PRs
+    Task<bool> IsFileInOpenPr(Guid fileId);
 
     // Webhook Queue
     Task<long> EnqueueWebhook(string payload);
