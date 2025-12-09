@@ -4,7 +4,20 @@ using System.Text.Json;
 
 namespace CodeFamily.Api.Workers;
 
-
+/// <summary>
+/// Background worker that processes webhook queue.
+/// This is the CORE of real-time conflict detection.
+/// 
+/// WORKFLOW:
+/// 1. Poll webhook_queue for pending items
+/// 2. Parse GitHub webhook payload
+/// 3. Run incremental analysis on changed files
+/// 4. Calculate risk with open PRs
+/// 5. If risk ≥ 80%:
+///    - Block merge via GitHub Status API
+///    - Send Slack DM
+///    - Publish to Supabase Realtime
+/// </summary>
 public class IncrementalWorker : BackgroundService
 {
     private readonly IServiceProvider _services;

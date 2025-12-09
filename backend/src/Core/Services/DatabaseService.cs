@@ -1357,6 +1357,25 @@ public class DatabaseService : IDatabaseService
         return conflicts.Values.OrderByDescending(c => c.OverlapCount).ToList();
     }
 
+    public async Task<bool> IsFileInOpenPr(Guid fileId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(@"
+            SELECT 1 
+            FROM pr_files_changed pfc
+            JOIN pull_requests pr ON pfc.pr_id = pr.id
+            WHERE pfc.file_id = @fileId
+              AND pr.state = 'open'
+            LIMIT 1", conn);
+
+        cmd.Parameters.AddWithValue("fileId", fileId);
+
+        var result = await cmd.ExecuteScalarAsync();
+        return result != null;
+    }
+
     // Webhook Queue
     public async Task<long> EnqueueWebhook(string payload)
     {

@@ -120,3 +120,4 @@ public class GitHubCommitAuthor
     public long Id { get; set; }
     public string? AvatarUrl { get; set; }
 }
+

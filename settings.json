@@ -1,0 +1,33 @@
+{
+    "ConnectionStrings": {
+        "DefaultConnection": "${CONNECTION_STRING}"
+    },
+    "GitHub": {
+        "AppId": "2322543",
+        "ClientId": "${GITHUB_CLIENT_ID}",
+        "ClientSecret": "${GITHUB_CLIENT_SECRET}",
+        "WebhookSecret": "${GITHUB_WEBHOOK_SECRET}",
+        "PrivateKeyPath": "/secrets/codefamily.pem"
+    },
+    "GitHubApp": {
+        "AppId": "2322543",
+        "ClientId": "${GITHUB_APP_CLIENT_ID}",
+        "ClientSecret": "${GITHUB_APP_CLIENT_SECRET}",
+        "PrivateKeyPath": "/secrets/codefamily.pem"
+    },
+    "Gemini": {
+        "ApiKey": "${GEMINI_API_KEY}"
+    },
+    "Supabase": {
+        "Url": "${SUPABASE_URL}",
+        "ServiceKey": "${SUPABASE_SERVICE_KEY}"
+    },
+    "Slack": {
+        "BotToken": "${SLACK_BOT_TOKEN}"
+    },
+    "Sidecar": {
+        "Url": "http://localhost:3002"
+    },
+    "WebhookUrl": "https://conflagrant-alleen-balletic.ngrok-free.dev",
+    "CloneBasePath": "./testdata/repos"
+}
