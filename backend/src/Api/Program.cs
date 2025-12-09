@@ -14,11 +14,11 @@ var settingsPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..
 if (File.Exists(settingsPath))
 {
     var jsonContent = File.ReadAllText(settingsPath);
-    
+
     // Replace ${VAR_NAME} with environment variable values
     // Using Regex to find all patterns of ${VAR_NAME}
     var regex = new System.Text.RegularExpressions.Regex(@"\$\{(.+?)\}");
-    jsonContent = regex.Replace(jsonContent, match => 
+    jsonContent = regex.Replace(jsonContent, match =>
     {
         var varName = match.Groups[1].Value;
         var envValue = Environment.GetEnvironmentVariable(varName);

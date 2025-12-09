@@ -18,7 +18,7 @@ public class DatabaseService : IDatabaseService
     public DatabaseService(IOptions<AppSettings> appSettings, IConfiguration configuration)
     {
         // Use the direct PostgreSQL connection string from appsettings/settings.json
-        _connectionString = configuration.GetConnectionString("DefaultConnection") 
+        _connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new Exception("ConnectionStrings:DefaultConnection is required in settings.json");
     }
 
@@ -76,7 +76,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<User?> GetUserByAuthorName(string authorName)
     {
-        using var conn = GetConnection();        await conn.OpenAsync();
+        using var conn = GetConnection(); await conn.OpenAsync();
 
         using var cmd = new NpgsqlCommand("SELECT id, github_id, author_name, email, avatar_url FROM users WHERE author_name = @authorName", conn);
         cmd.Parameters.AddWithValue("authorName", authorName);
@@ -156,7 +156,7 @@ public class DatabaseService : IDatabaseService
 
         using var cmd = new NpgsqlCommand("UPDATE users SET author_name = @authorName WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("authorName", authorName);
-        cmd.Parameters.AddWithValue("id",userId);
+        cmd.Parameters.AddWithValue("id", userId);
 
         await cmd.ExecuteNonQueryAsync();
     }
@@ -1423,7 +1423,7 @@ public class DatabaseService : IDatabaseService
         cmd.Parameters.AddWithValue("id", id);
 
         await cmd.ExecuteNonQueryAsync();
-}
+    }
 
     public async Task<List<Commit>> GetCommitsForFile(Guid fileId)
     {

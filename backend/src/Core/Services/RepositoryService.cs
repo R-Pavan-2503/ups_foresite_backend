@@ -86,7 +86,7 @@ public class RepositoryService : IRepositoryService
         foreach (var entry in tree)
         {
             var fullPath = string.IsNullOrEmpty(basePath) ? entry.Name : $"{basePath}/{entry.Name}";
-            
+
             if (entry.TargetType == TreeEntryTargetType.Blob)
             {
                 // It's a file
@@ -107,16 +107,16 @@ public class RepositoryService : IRepositoryService
         {
             using var repo = GetRepository(owner, repoName);
             var remote = repo.Network.Remotes["origin"];
-            
+
             // Force update local refs to match remote (mirror behavior)
             // This ensures repo.Branches["main"] points to the latest commit
             var refSpecs = new[] { "+refs/heads/*:refs/heads/*" };
-            
+
             var fetchOptions = new FetchOptions
             {
                 Prune = true
             };
-            
+
             Commands.Fetch(repo, remote.Name, refSpecs, fetchOptions, "fetch");
 
             // Manual Prune: Ensure local remote-tracking branches match remote exactly
@@ -130,7 +130,7 @@ public class RepositoryService : IRepositoryService
                 {
                     // Map refs/remotes/origin/branch -> refs/heads/branch
                     var expectedRemoteRef = branch.Reference.CanonicalName.Replace("refs/remotes/origin/", "refs/heads/");
-                    
+
                     // If the remote doesn't have this ref anymore, delete our local tracking branch
                     if (!remoteRefs.Contains(expectedRemoteRef) && expectedRemoteRef != "refs/heads/HEAD")
                     {
@@ -179,16 +179,16 @@ public class RepositoryService : IRepositoryService
     {
         // Normalize branch name (remove origin/ prefix if present)
         var normalizedBranchName = branchName.Replace("origin/", "");
-        
+
         // Try to find the branch (check both local and remote)
-        var branch = repo.Branches[normalizedBranchName] 
+        var branch = repo.Branches[normalizedBranchName]
                      ?? repo.Branches[$"origin/{normalizedBranchName}"];
-        
+
         if (branch == null)
         {
             return new List<LibGit2Sharp.Commit>();
         }
-        
+
         return branch.Commits
             .OrderByDescending(c => c.Author.When)
             .ToList();
@@ -202,14 +202,14 @@ public class RepositoryService : IRepositoryService
             var firstCommitContent = GetFileContentAtCommit(repo, commit.Sha, filePath);
             if (string.IsNullOrEmpty(firstCommitContent))
                 return (0, 0);
-            
+
             var lines = firstCommitContent.Split('\n').Length;
             return (lines, 0);
         }
 
         var parent = commit.Parents.First();
         var patch = repo.Diff.Compare<Patch>(parent.Tree, commit.Tree);
-        
+
         foreach (var change in patch)
         {
             if (change.Path == filePath)
