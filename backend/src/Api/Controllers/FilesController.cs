@@ -166,6 +166,17 @@ public class FilesController : ControllerBase
         }
     }
 
+    // Get commit history for a file
+    [HttpGet("{fileId}/commits")]
+    public async Task<IActionResult> GetFileCommits(Guid fileId)
+    {
+        var file = await _db.GetFileById(fileId);
+        if (file == null) return NotFound(new { error = "File not found" });
+
+        var commits = await _db.GetCommitsForFile(fileId);
+        return Ok(commits);
+    }
+
     // Get file content from Git repository
     [HttpGet("{fileId}/content")]
     public async Task<IActionResult> GetFileContent(
