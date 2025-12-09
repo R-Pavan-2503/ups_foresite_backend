@@ -89,7 +89,7 @@ public class RepositoryRefreshController : ControllerBase
             foreach (var branchName in branches)
             {
                 var branchCommits = _repoService.GetCommitsByBranch(repo, branchName);
-                
+
                 foreach (var commit in branchCommits)
                 {
                     // If we have a last analyzed commit, only process commits after it
@@ -115,7 +115,7 @@ public class RepositoryRefreshController : ControllerBase
             var dbBranches = await _db.GetBranchesByRepository(repository.Id);
             var dbBranchNames = dbBranches.Select(b => b.Name).ToHashSet();
             var gitBranchNames = branches.ToHashSet();
-            
+
             _logger.LogInformation($"DB Branches: {string.Join(", ", dbBranchNames)}");
             _logger.LogInformation($"Git Branches: {string.Join(", ", gitBranchNames)}");
 
@@ -137,7 +137,7 @@ public class RepositoryRefreshController : ControllerBase
                     _logger.LogError($"Cannot analyze repository {repository.Name}: ConnectedByUserId is null");
                     return;
                 }
-                
+
                 await _analysis.AnalyzeRepository(
                     repository.OwnerUsername,
                     repository.Name,

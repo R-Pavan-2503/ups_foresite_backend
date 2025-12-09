@@ -107,7 +107,7 @@ public class IncrementalWorker : BackgroundService
         var repository = payload.RootElement.GetProperty("repository");
         var owner = repository.GetProperty("owner").GetProperty("login").GetString()!;
         var repoName = repository.GetProperty("name").GetString()!;
-        
+
         var headCommit = payload.RootElement.GetProperty("head_commit");
         var commitSha = headCommit.GetProperty("id").GetString()!;
 
