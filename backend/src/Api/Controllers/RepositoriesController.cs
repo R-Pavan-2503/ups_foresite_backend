@@ -20,12 +20,17 @@ public class RepositoriesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetRepositories([FromHeader(Name = "Authorization")] string authorization, [FromQuery] Guid userId)
+    public async Task<IActionResult> GetRepositories(
+        [FromHeader(Name = "Authorization")] string authorization, 
+        [FromQuery] Guid userId,
+        [FromQuery] int page = 1,
+        [FromQuery] int per_page = 10,
+        [FromQuery] string sort = "pushed")
     {
         try
         {
             var token = authorization.Replace("Bearer ", "");
-            var githubRepos = await _github.GetUserRepositories(token);
+            var githubRepos = await _github.GetUserRepositories(token, page, per_page, sort);
 
             // Get analyzed repos
             var analyzedRepos = await _db.GetUserRepositories(userId);

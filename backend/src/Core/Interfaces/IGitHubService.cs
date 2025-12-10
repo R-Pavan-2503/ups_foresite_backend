@@ -12,7 +12,7 @@ public interface IGitHubService
     Task<string?> GetUserEmails(string accessToken);
 
     // Repositories
-    Task<List<Octokit.Repository>> GetUserRepositories(string accessToken);
+    Task<List<Octokit.Repository>> GetUserRepositories(string accessToken, int page = 1, int perPage = 10, string sort = "pushed");
     Task<Octokit.Repository> GetRepository(string owner, string repo);
 
     // Commits
