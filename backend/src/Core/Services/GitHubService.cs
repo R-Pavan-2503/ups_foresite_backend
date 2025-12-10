@@ -100,14 +100,28 @@ public class GitHubService : IGitHubService
     }
 
     // Repositories
-    public async Task<List<Octokit.Repository>> GetUserRepositories(string accessToken)
+    public async Task<List<Octokit.Repository>> GetUserRepositories(string accessToken, int page = 1, int perPage = 10, string sort = "pushed")
     {
         var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
         {
             Credentials = new Credentials(accessToken)
         };
 
-        var repos = await client.Repository.GetAllForCurrent();
+        // Create request with pagination and sorting
+        var request = new RepositoryRequest
+        {
+            Sort = sort == "pushed" ? RepositorySort.Pushed : RepositorySort.FullName,
+            Direction = SortDirection.Descending
+        };
+        
+        var options = new ApiOptions
+        {
+            PageSize = perPage,
+            PageCount = 1,
+            StartPage = page
+        };
+
+        var repos = await client.Repository.GetAllForCurrent(request, options);
         return repos.ToList();
     }
 
