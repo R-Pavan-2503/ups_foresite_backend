@@ -24,6 +24,11 @@ public interface IDatabaseService
     Task<Repository?> GetRepositoryById(Guid id);
     Task<List<Repository>> GetAnalyzedRepositories(Guid userId, string filter);
 
+    // Repository User Access
+    Task<bool> HasRepositoryAccess(Guid userId, Guid repositoryId);
+    Task GrantRepositoryAccess(Guid userId, Guid repositoryId, Guid? grantedByUserId = null);
+    Task<(string? userName, DateTime? analyzedAt)> GetRepositoryAnalyzer(Guid repositoryId);
+
     // Branches
     Task<Branch> CreateBranch(Branch branch);
     Task<List<Branch>> GetBranchesByRepository(Guid repositoryId);

@@ -177,7 +177,6 @@ public class FilesController : ControllerBase
         return Ok(commits);
     }
 
-    // Get file content from Git repository
     [HttpGet("{fileId}/content")]
     public async Task<IActionResult> GetFileContent(
         Guid fileId,
@@ -191,6 +190,10 @@ public class FilesController : ControllerBase
 
             var repository = await _db.GetRepositoryById(file.RepositoryId);
             if (repository == null) return NotFound(new { error = "Repository not found" });
+
+            // Ensure bare clone exists locally (create if doesn't exist)
+            var cloneUrl = $"https://github.com/{repository.OwnerUsername}/{repository.Name}.git";
+            await _repoService.CloneBareRepository(cloneUrl, repository.OwnerUsername, repository.Name);
 
             // Get the cloned repository
             using var repo = _repoService.GetRepository(repository.OwnerUsername, repository.Name);

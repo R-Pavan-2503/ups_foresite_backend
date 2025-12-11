@@ -269,7 +269,10 @@ public class DatabaseService : IDatabaseService
         await conn.OpenAsync();
 
         using var cmd = new NpgsqlCommand(
-            "SELECT id, name, owner_username, status, is_active_blocking, connected_by_user_id, is_mine, last_analyzed_commit_sha, last_refresh_at FROM repositories WHERE connected_by_user_id = @userId",
+            @"SELECT r.id, r.name, r.owner_username, r.status, r.is_active_blocking, r.connected_by_user_id, r.is_mine, r.last_analyzed_commit_sha, r.last_refresh_at
+              FROM repositories r
+              INNER JOIN repository_user_access rua ON r.id = rua.repository_id
+              WHERE rua.user_id = @userId",
             conn);
 
         cmd.Parameters.AddWithValue("userId", userId);
@@ -334,16 +337,28 @@ public class DatabaseService : IDatabaseService
         {
             case "your":
                 // Show repositories that belong to the user (is_mine = TRUE)
-                query = "SELECT id, name, owner_username, status, is_active_blocking, connected_by_user_id, is_mine, last_analyzed_commit_sha, last_refresh_at FROM repositories WHERE is_mine = TRUE AND connected_by_user_id = @userId AND (status = 'ready' OR status = 'analyzing' OR status = 'pending') ORDER BY name";
+                query = @"SELECT r.id, r.name, r.owner_username, r.status, r.is_active_blocking, r.connected_by_user_id, r.is_mine, r.last_analyzed_commit_sha, r.last_refresh_at
+                          FROM repositories r
+                          INNER JOIN repository_user_access rua ON r.id = rua.repository_id
+                          WHERE rua.user_id = @userId AND r.is_mine = TRUE AND (r.status = 'ready' OR r.status = 'analyzing' OR r.status = 'pending')
+                          ORDER BY r.name";
                 break;
             case "others":
                 // Show repositories that DON'T belong to the user (is_mine = FALSE)
-                query = "SELECT id, name, owner_username, status, is_active_blocking, connected_by_user_id, is_mine, last_analyzed_commit_sha, last_refresh_at FROM repositories WHERE is_mine = FALSE AND connected_by_user_id = @userId AND (status = 'ready' OR status = 'analyzing' OR status = 'pending') ORDER BY name";
+                query = @"SELECT r.id, r.name, r.owner_username, r.status, r.is_active_blocking, r.connected_by_user_id, r.is_mine, r.last_analyzed_commit_sha, r.last_refresh_at
+                          FROM repositories r
+                          INNER JOIN repository_user_access rua ON r.id = rua.repository_id
+                          WHERE rua.user_id = @userId AND r.is_mine = FALSE AND (r.status = 'ready' OR r.status = 'analyzing' OR r.status = 'pending')
+                          ORDER BY r.name";
                 break;
             case "all":
             default:
                 // Show all analyzed repositories for this user
-                query = "SELECT id, name, owner_username, status, is_active_blocking, connected_by_user_id, is_mine, last_analyzed_commit_sha, last_refresh_at FROM repositories WHERE connected_by_user_id = @userId AND (status = 'ready' OR status = 'analyzing' OR status = 'pending') ORDER BY name";
+                query = @"SELECT r.id, r.name, r.owner_username, r.status, r.is_active_blocking, r.connected_by_user_id, r.is_mine, r.last_analyzed_commit_sha, r.last_refresh_at
+                          FROM repositories r
+                          INNER JOIN repository_user_access rua ON r.id = rua.repository_id
+                          WHERE rua.user_id = @userId AND (r.status = 'ready' OR r.status = 'analyzing' OR r.status = 'pending')
+                          ORDER BY r.name";
                 break;
         }
 
@@ -370,7 +385,67 @@ public class DatabaseService : IDatabaseService
         return repositories;
     }
 
+    // Repository User Access
+    public async Task<bool> HasRepositoryAccess(Guid userId, Guid repositoryId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT EXISTS(SELECT 1 FROM repository_user_access WHERE repository_id = @repoId AND user_id = @userId)",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+        cmd.Parameters.AddWithValue("userId", userId);
+
+        var result = await cmd.ExecuteScalarAsync();
+        return (bool)result!;
+    }
+
+    public async Task GrantRepositoryAccess(Guid userId, Guid repositoryId, Guid? grantedByUserId = null)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            @"INSERT INTO repository_user_access (repository_id, user_id, granted_at, granted_by_user_id)
+              VALUES (@repoId, @userId, NOW(), @grantedBy)
+              ON CONFLICT (repository_id, user_id) DO NOTHING",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("grantedBy", (object?)grantedByUserId ?? DBNull.Value);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<(string? userName, DateTime? analyzedAt)> GetRepositoryAnalyzer(Guid repositoryId)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+
+        using var cmd = new NpgsqlCommand(
+            @"SELECT u.author_name, r.created_at 
+              FROM repositories r
+              LEFT JOIN users u ON r.connected_by_user_id = u.id
+              WHERE r.id = @repoId",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            var userName = reader.IsDBNull(0) ? null : reader.GetString(0);
+            var analyzedAt = reader.IsDBNull(1) ? (DateTime?)null : reader.GetDateTime(1);
+            return (userName, analyzedAt);
+        }
+        return (null, null);
+    }
+
     // Branches
+
     public async Task<Branch> CreateBranch(Branch branch)
     {
         using var conn = GetConnection();
