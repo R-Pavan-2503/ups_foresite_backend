@@ -11,12 +11,21 @@ public class RepositoriesController : ControllerBase
     private readonly IGitHubService _github;
     private readonly IDatabaseService _db;
     private readonly IAnalysisService _analysis;
+    private readonly IRepositoryService _repoService;
+    private readonly ILogger<RepositoriesController> _logger;
 
-    public RepositoriesController(IGitHubService github, IDatabaseService db, IAnalysisService analysis)
+    public RepositoriesController(
+        IGitHubService github, 
+        IDatabaseService db, 
+        IAnalysisService analysis,
+        IRepositoryService repoService,
+        ILogger<RepositoriesController> logger)
     {
         _github = github;
         _db = db;
         _analysis = analysis;
+        _repoService = repoService;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -59,23 +68,76 @@ public class RepositoriesController : ControllerBase
     {
         try
         {
-            // Check if already exists
+            // Check if repository already exists in database
             var existing = await _db.GetRepositoryByName(owner, repo);
+
             if (existing != null)
             {
-                return Ok(new { message = "Repository already analyzed", repositoryId = existing.Id });
+                // Repository already analyzed - check if current user has access
+                var hasAccess = await _db.HasRepositoryAccess(userId, existing.Id);
+
+                if (hasAccess)
+                {
+                    // User already has access
+                    return Ok(new
+                    {
+                        message = "You already have access to this repository",
+                        repositoryId = existing.Id,
+                        status = existing.Status,
+                        alreadyHasAccess = true
+                    });
+                }
+                else
+                {
+                    // Repository analyzed by someone else - grant access to current user
+                    await _db.GrantRepositoryAccess(userId, existing.Id, existing.ConnectedByUserId);
+
+                    // Clone bare repository immediately in background so it's ready when user views files
+                    var cloneUrl = $"https://github.com/{owner}/{repo}.git";
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _repoService.CloneBareRepository(cloneUrl, owner, repo);
+                            _logger.LogInformation($"✓ Bare clone created for {owner}/{repo} for user {userId}");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError($"✗ Failed to clone bare repository: {ex.Message}");
+                        }
+                    });
+                    
+                    // Get original analyzer info for response
+                    var (analyzerName, analyzedAt) = await _db.GetRepositoryAnalyzer(existing.Id);
+                    var timeAgo = analyzedAt.HasValue
+                        ? GetTimeAgo(analyzedAt.Value)
+                        : "some time ago";
+
+                    return Ok(new
+                    {
+                        message = $"Repository was already analyzed by {analyzerName ?? "another user"} {timeAgo}. Access granted!",
+                        repositoryId = existing.Id,
+                        status = existing.Status,
+                        analyzedBy = analyzerName,
+                        analyzedAt = analyzedAt,
+                        accessGranted = true,
+                        alreadyAnalyzed = true
+                    });
+                }
             }
 
-            // Repositories from "Your Repository" tab are ALWAYS yours
-            // (they come from GitHub API, even if you're a collaborator)
+            // Repository not yet analyzed - create new repository record
             var repository = await _db.CreateRepository(new Repository
             {
                 Name = repo,
                 OwnerUsername = owner,
                 Status = "pending",
                 ConnectedByUserId = userId,
-                IsMine = true  // Always TRUE for repos from GitHub API
+                IsMine = true  // True for repos from GitHub API
             });
+
+            // Grant access to the user who is analyzing
+            await _db.GrantRepositoryAccess(userId, repository.Id, userId);
 
             // Start analysis in background
             _ = Task.Run(async () =>
@@ -83,7 +145,7 @@ public class RepositoriesController : ControllerBase
                 await _analysis.AnalyzeRepository(owner, repo, repository.Id, userId);
             });
 
-            return Ok(new { message = "Analysis started", repositoryId = repository.Id });
+            return Ok(new { message = "Analysis started", repositoryId = repository.Id, newAnalysis = true });
         }
         catch (Exception ex)
         {
@@ -91,13 +153,41 @@ public class RepositoriesController : ControllerBase
         }
     }
 
+    // Helper method for time ago formatting
+    private string GetTimeAgo(DateTime dateTime)
+    {
+        var timeSpan = DateTime.UtcNow - dateTime;
+
+        if (timeSpan.TotalMinutes < 1) return "just now";
+        if (timeSpan.TotalMinutes < 60) return $"{(int)timeSpan.TotalMinutes} minute{(timeSpan.TotalMinutes >= 2 ? "s" : "")} ago";
+        if (timeSpan.TotalHours < 24) return $"{(int)timeSpan.TotalHours} hour{(timeSpan.TotalHours >= 2 ? "s" : "")} ago";
+        if (timeSpan.TotalDays < 30) return $"{(int)timeSpan.TotalDays} day{(timeSpan.TotalDays >= 2 ? "s" : "")} ago";
+        if (timeSpan.TotalDays < 365) return $"{(int)(timeSpan.TotalDays / 30)} month{(timeSpan.TotalDays / 30 >= 2 ? "s" : "")} ago";
+        return $"{(int)(timeSpan.TotalDays / 365)} year{(timeSpan.TotalDays / 365 >= 2 ? "s" : "")} ago";
+    }
+
+
     [HttpGet("{repositoryId}")]
     public async Task<IActionResult> GetRepository(Guid repositoryId)
     {
-        var repo = await _db.GetRepositoryById(repositoryId);
-        if (repo == null) return NotFound();
+        var repository = await _db.GetRepositoryById(repositoryId);
+        if (repository == null) return NotFound(new { error = "Repository not found" });
 
-        return Ok(repo);
+        // Edge case: Ensure bare clone exists (in case it was deleted)
+        // This happens when user has database access but no local clone
+        var cloneUrl = $"https://github.com/{repository.OwnerUsername}/{repository.Name}.git";
+        try
+        {
+            await _repoService.CloneBareRepository(cloneUrl, repository.OwnerUsername, repository.Name);
+            _logger.LogInformation($"✓ Verified bare clone exists for {repository.OwnerUsername}/{repository.Name}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"⚠ Could not ensure bare clone: {ex.Message}");
+            // Don't fail the request - proceed anyway
+        }
+
+        return Ok(repository);
     }
 
     [HttpGet("{owner}/{repo}/status")]
@@ -164,27 +254,61 @@ public class RepositoriesController : ControllerBase
                 return BadRequest(new { error = "Invalid GitHub URL. Please provide a valid repository URL (e.g., https://github.com/owner/repo)" });
             }
 
-            // Check if already exists
+            // Check if repository already exists in database
             var existing = await _db.GetRepositoryByName(owner, repo);
+
             if (existing != null)
             {
-                if (existing.Status == "ready")
+                // Repository already analyzed - check if current user has access
+                var hasAccess = await _db.HasRepositoryAccess(request.UserId, existing.Id);
+
+                if (hasAccess)
                 {
+                    // User already has access
                     return Ok(new
                     {
-                        message = "Repository already analyzed",
+                        message = "You already have access to this repository",
                         repositoryId = existing.Id,
                         status = existing.Status,
+                        alreadyHasAccess = true,
                         alreadyExists = true
                     });
                 }
-                else if (existing.Status == "analyzing" || existing.Status == "pending")
+                else
                 {
+                    // Repository analyzed by someone else - grant access to current user
+                    await _db.GrantRepositoryAccess(request.UserId, existing.Id, existing.ConnectedByUserId);
+
+                    // Clone bare repository immediately in background so it's ready when user views files
+                    var cloneUrl = $"https://github.com/{owner}/{repo}.git";
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _repoService.CloneBareRepository(cloneUrl, owner, repo);
+                            _logger.LogInformation($"✓ Bare clone created for {owner}/{repo} for user {request.UserId}");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError($"✗ Failed to clone bare repository: {ex.Message}");
+                        }
+                    });
+
+                    // Get original analyzer info for response
+                    var (analyzerName, analyzedAt) = await _db.GetRepositoryAnalyzer(existing.Id);
+                    var timeAgo = analyzedAt.HasValue
+                        ? GetTimeAgo(analyzedAt.Value)
+                        : "some time ago";
+
                     return Ok(new
                     {
-                        message = "Repository analysis is already in progress",
+                        message = $"Repository was already analyzed by {analyzerName ?? "another user"} {timeAgo}. Access granted!",
                         repositoryId = existing.Id,
                         status = existing.Status,
+                        analyzedBy = analyzerName,
+                        analyzedAt = analyzedAt,
+                        accessGranted = true,
+                        alreadyAnalyzed = true,
                         alreadyExists = true
                     });
                 }
@@ -204,6 +328,9 @@ public class RepositoriesController : ControllerBase
                 IsMine = isMine
             });
 
+            // Grant access to the user who is analyzing
+            await _db.GrantRepositoryAccess(request.UserId, repository.Id, request.UserId);
+
             // Start analysis in background
             _ = Task.Run(async () =>
             {
@@ -215,7 +342,8 @@ public class RepositoriesController : ControllerBase
                 message = "Analysis started successfully",
                 repositoryId = repository.Id,
                 status = "pending",
-                alreadyExists = false
+                alreadyExists = false,
+                newAnalysis = true
             });
         }
         catch (Exception ex)
