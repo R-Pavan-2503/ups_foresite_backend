@@ -32,11 +32,44 @@ public class BranchesController : ControllerBase
         }
     }
 
-    [HttpGet("{branchName}/commits")]
-    public async Task<IActionResult> GetCommitsByBranch(Guid repositoryId, string branchName)
+    /// <summary>
+    /// Catch-all route that handles branch names with slashes (e.g., feature/new_frontend).
+    /// Expects paths like: "{branchName}/commits" or "{branchName}/files"
+    /// </summary>
+    [HttpGet("{**branchPath}")]
+    public async Task<IActionResult> HandleBranchRoute(Guid repositoryId, string branchPath)
+    {
+        _logger.LogInformation($"BranchesController: Received branchPath = '{branchPath}'");
+        
+        if (string.IsNullOrEmpty(branchPath))
+        {
+            return NotFound();
+        }
+
+        // Check for /commits suffix
+        if (branchPath.EndsWith("/commits"))
+        {
+            var branchName = branchPath.Substring(0, branchPath.Length - "/commits".Length);
+            return await GetCommitsByBranch(repositoryId, branchName);
+        }
+        
+        // Check for /files suffix
+        if (branchPath.EndsWith("/files"))
+        {
+            var branchName = branchPath.Substring(0, branchPath.Length - "/files".Length);
+            return await GetFilesByBranch(repositoryId, branchName);
+        }
+
+        // No known suffix, return 404
+        _logger.LogWarning($"BranchesController: Unknown route pattern for branchPath = '{branchPath}'");
+        return NotFound();
+    }
+
+    private async Task<IActionResult> GetCommitsByBranch(Guid repositoryId, string branchName)
     {
         try
         {
+            _logger.LogInformation($"Fetching commits for branch '{branchName}' in repository {repositoryId}");
             var commits = await _db.GetCommitsByBranch(repositoryId, branchName);
             return Ok(commits);
         }
@@ -47,11 +80,11 @@ public class BranchesController : ControllerBase
         }
     }
 
-    [HttpGet("{branchName}/files")]
-    public async Task<IActionResult> GetFilesByBranch(Guid repositoryId, string branchName)
+    private async Task<IActionResult> GetFilesByBranch(Guid repositoryId, string branchName)
     {
         try
         {
+            _logger.LogInformation($"Fetching files for branch '{branchName}' in repository {repositoryId}");
             var files = await _db.GetFilesByBranch(repositoryId, branchName);
             return Ok(files);
         }

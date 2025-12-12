@@ -78,10 +78,11 @@ public class AuthController : ControllerBase
             {
                 user = new
                 {
-                    user.Id,
-                    user.AuthorName,
-                    user.Email,
-                    user.AvatarUrl
+                    id = user.Id,
+                    username = user.AuthorName,  // Frontend expects 'username'
+                    authorName = user.AuthorName,
+                    email = user.Email,
+                    avatarUrl = user.AvatarUrl
                 },
                 accessToken
             });
