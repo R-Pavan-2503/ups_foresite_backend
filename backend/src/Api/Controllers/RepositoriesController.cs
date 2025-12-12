@@ -51,6 +51,8 @@ public class RepositoriesController : ControllerBase
                 gr.Owner.Login,
                 gr.Description,
                 gr.CloneUrl,
+                gr.Private,  // Added for filtering support
+                gr.Permissions,  // Added for contributor filtering
                 Analyzed = analyzedRepos.Any(ar => ar.Name == gr.Name && ar.OwnerUsername == gr.Owner.Login),
                 Status = analyzedRepos.FirstOrDefault(ar => ar.Name == gr.Name && ar.OwnerUsername == gr.Owner.Login)?.Status
             });
