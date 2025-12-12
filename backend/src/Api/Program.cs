@@ -60,6 +60,7 @@ builder.Services.AddSingleton<ITreeSitterService, TreeSitterService>();
 builder.Services.AddSingleton<ISlackService, SlackService>();
 builder.Services.AddSingleton<IRepositoryService, RepositoryService>();
 builder.Services.AddSingleton<IAnalysisService, AnalysisService>();
+builder.Services.AddSingleton<IGroqService, GroqService>();
 
 // Register background workers
 builder.Services.AddHostedService<IncrementalWorker>();

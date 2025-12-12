@@ -18,6 +18,13 @@
     "Gemini": {
         "ApiKey": "${GEMINI_API_KEY}"
     },
+    "Groq": {
+        "ApiKey": "${GROQ_API_KEY}",
+        "ApiUrl": "https://api.groq.com/openai/v1/chat/completions",
+        "Model": "llama-3.3-70b-versatile",
+        "MaxTokens": 300,
+        "Temperature": 0.3
+    },
     "Supabase": {
         "Url": "${SUPABASE_URL}",
         "ServiceKey": "${SUPABASE_SERVICE_KEY}"

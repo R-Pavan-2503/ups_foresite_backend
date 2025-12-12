@@ -4,6 +4,7 @@ public class AppSettings
 {
     public GitHubSettings GitHub { get; set; } = new();
     public GeminiSettings Gemini { get; set; } = new();
+    public GroqSettings Groq { get; set; } = new();
     public SupabaseSettings Supabase { get; set; } = new();
     public SlackSettings Slack { get; set; } = new();
     public SidecarSettings Sidecar { get; set; } = new();
@@ -39,4 +40,13 @@ public class SlackSettings
 public class SidecarSettings
 {
     public string Url { get; set; } = "http://localhost:3001";
+}
+
+public class GroqSettings
+{
+    public string ApiKey { get; set; } = string.Empty;
+    public string ApiUrl { get; set; } = "https://api.groq.com/openai/v1/chat/completions";
+    public string Model { get; set; } = "llama-3.3-70b-versatile";
+    public int MaxTokens { get; set; } = 300;
+    public double Temperature { get; set; } = 0.3;
 }
