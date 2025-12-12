@@ -10,15 +10,18 @@ public class FilesController : ControllerBase
 {
     private readonly IDatabaseService _db;
     private readonly IRepositoryService _repoService;
+    private readonly IGroqService _groqService;
     private readonly ILogger<FilesController> _logger;
 
     public FilesController(
         IDatabaseService db,
         IRepositoryService repoService,
+        IGroqService groqService,
         ILogger<FilesController> logger)
     {
         _db = db;
         _repoService = repoService;
+        _groqService = groqService;
         _logger = logger;
     }
 
@@ -250,6 +253,83 @@ public class FilesController : ControllerBase
         {
             _logger.LogError($"Failed to get file content: {ex.Message}");
             return StatusCode(500, new { error = $"Failed to retrieve file content: {ex.Message}" });
+        }
+    }
+
+    // Generate AI-powered file summary using Groq
+    [HttpGet("{fileId}/summary")]
+    public async Task<IActionResult> GetFileSummary(Guid fileId)
+    {
+        try
+        {
+            _logger.LogInformation($"Generating summary for file {fileId}");
+
+            // Get all code chunks for this file from Supabase
+            var embeddings = await _db.GetEmbeddingsByFile(fileId);
+
+            // If no chunks, return specific message
+            if (!embeddings.Any())
+            {
+                _logger.LogInformation($"No code chunks found for file {fileId}");
+                return Ok(new
+                {
+                    success = false,
+                    message = "No code chunks available to generate summary",
+                    chunkCount = 0
+                });
+            }
+
+            // Extract chunk content only
+            var chunks = embeddings
+                .Select(e => e.ChunkContent)
+                .Where(c => !string.IsNullOrWhiteSpace(c))
+                .ToList();
+
+            if (!chunks.Any())
+            {
+                return Ok(new
+                {
+                    success = false,
+                    message = "No valid code chunks available to generate summary",
+                    chunkCount = 0
+                });
+            }
+
+            _logger.LogInformation($"Found {chunks.Count} chunks, calling Groq API...");
+
+            // Call Groq service to generate summary
+            var (success, summary, error) = await _groqService.GenerateFileSummaryAsync(chunks);
+
+            // Return result
+            if (success)
+            {
+                _logger.LogInformation("Successfully generated file summary");
+                return Ok(new
+                {
+                    success = true,
+                    summary = summary,
+                    chunkCount = chunks.Count
+                });
+            }
+            else
+            {
+                _logger.LogWarning($"Failed to generate summary: {error}");
+                return Ok(new
+                {
+                    success = false,
+                    error = error ?? "Failed to generate summary",
+                    chunkCount = chunks.Count
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error generating file summary: {ex.Message}");
+            return StatusCode(500, new
+            {
+                success = false,
+                error = "Internal server error"
+            });
         }
     }
 }
