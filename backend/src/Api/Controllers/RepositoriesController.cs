@@ -403,18 +403,34 @@ public class RepositoriesController : ControllerBase
 
     // New Analytics Endpoints
     [HttpGet("{repositoryId}/analytics")]
-    public async Task<IActionResult> GetRepositoryAnalytics(Guid repositoryId)
+    public async Task<IActionResult> GetRepositoryAnalytics(Guid repositoryId, [FromQuery] string? branchName = null)
     {
         try
         {
             var repo = await _db.GetRepositoryById(repositoryId);
             if (repo == null) return NotFound();
 
-            // Get all commits
-            var commits = await _db.GetCommitsByRepository(repositoryId);
+            // Get commits - filter by branch if specified
+            List<Core.Models.Commit> commits;
+            if (!string.IsNullOrEmpty(branchName))
+            {
+                commits = await _db.GetCommitsByBranch(repositoryId, branchName);
+            }
+            else
+            {
+                commits = await _db.GetCommitsByRepository(repositoryId);
+            }
 
-            // Get all files
-            var files = await _db.GetFilesByRepository(repositoryId);
+            // Get files - filter by branch if specified
+            List<Core.Models.RepositoryFile> files;
+            if (!string.IsNullOrEmpty(branchName))
+            {
+                files = await _db.GetFilesByBranch(repositoryId, branchName);
+            }
+            else
+            {
+                files = await _db.GetFilesByRepository(repositoryId);
+            }
 
             // Get file changes to calculate hotspots
             var fileChangeCounts = new Dictionary<Guid, int>();
@@ -502,15 +518,26 @@ public class RepositoriesController : ControllerBase
     }
 
     [HttpGet("{repositoryId}/summary")]
-    public async Task<IActionResult> GetRepositorySummary(Guid repositoryId)
+    public async Task<IActionResult> GetRepositorySummary(Guid repositoryId, [FromQuery] string? branchName = null)
     {
         try
         {
             var repo = await _db.GetRepositoryById(repositoryId);
             if (repo == null) return NotFound();
 
-            var files = await _db.GetFilesByRepository(repositoryId);
-            var commits = await _db.GetCommitsByRepository(repositoryId);
+            // Get files - filter by branch if specified
+            List<Core.Models.RepositoryFile> files;
+            List<Core.Models.Commit> commits;
+            if (!string.IsNullOrEmpty(branchName))
+            {
+                files = await _db.GetFilesByBranch(repositoryId, branchName);
+                commits = await _db.GetCommitsByBranch(repositoryId, branchName);
+            }
+            else
+            {
+                files = await _db.GetFilesByRepository(repositoryId);
+                commits = await _db.GetCommitsByRepository(repositoryId);
+            }
 
             // Analyze file types by extension
             var fileExtensions = files
@@ -552,18 +579,26 @@ public class RepositoriesController : ControllerBase
     }
 
     [HttpGet("{repositoryId}/team-insights")]
-    public async Task<IActionResult> GetTeamInsights(Guid repositoryId)
+    public async Task<IActionResult> GetTeamInsights(Guid repositoryId, [FromQuery] string? branchName = null)
     {
         try
         {
             var repo = await _db.GetRepositoryById(repositoryId);
             if (repo == null) return NotFound();
 
-            // Get all commits
-            var commits = await _db.GetCommitsByRepository(repositoryId);
-
-            // Get all files
-            var files = await _db.GetFilesByRepository(repositoryId);
+            // Get commits - filter by branch if specified
+            List<Core.Models.Commit> commits;
+            List<Core.Models.RepositoryFile> files;
+            if (!string.IsNullOrEmpty(branchName))
+            {
+                commits = await _db.GetCommitsByBranch(repositoryId, branchName);
+                files = await _db.GetFilesByBranch(repositoryId, branchName);
+            }
+            else
+            {
+                commits = await _db.GetCommitsByRepository(repositoryId);
+                files = await _db.GetFilesByRepository(repositoryId);
+            }
 
 
 
