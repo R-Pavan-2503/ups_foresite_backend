@@ -907,29 +907,46 @@ public class AnalysisService : IAnalysisService
         }
         else if (language is "javascript" or "typescript")
         {
-            // Non-relative import - could be local package or npm module
-            // Try to find it in the repository
-            var allFiles = await _db.GetFilesByRepository(repositoryId);
-            var matches = allFiles.Where(f => f.FilePath.Contains(importModule)).ToList();
-
-            if (matches.Count == 1)
+            // Handle Next.js/TypeScript path alias: @/ maps to project root
+            if (importModule.StartsWith("@/"))
             {
-                return matches[0].FilePath;
+                // Remove @/ prefix to get the relative path from root
+                var aliasPath = importModule.Substring(2); // "@/components/Button" -> "components/Button"
+                targetPath = aliasPath;
+                _logger.LogInformation($"    → Next.js @/ alias resolved to: '{targetPath}'");
             }
-            else if (matches.Count > 1)
+            // Skip known npm packages / framework imports (they're external dependencies)
+            else if (IsExternalPackage(importModule))
             {
-                // Prefer exact match
-                var exact = matches.FirstOrDefault(f =>
-                    f.FilePath.EndsWith("/" + importModule) ||
-                    f.FilePath.EndsWith("/" + importModule + ".js") ||
-                    f.FilePath.EndsWith("/" + importModule + ".jsx") ||
-                    f.FilePath.EndsWith("/" + importModule + ".ts") ||
-                    f.FilePath.EndsWith("/" + importModule + ".tsx"));
-                if (exact != null) return exact.FilePath;
+                _logger.LogInformation($"    → Skipping external package: '{importModule}'");
+                return null;
             }
+            else
+            {
+                // Non-relative, non-alias import - could be local package or npm module
+                // Try to find it in the repository
+                var allFiles = await _db.GetFilesByRepository(repositoryId);
+                var matches = allFiles.Where(f => f.FilePath.Contains(importModule)).ToList();
 
-            // If no match, it's likely an npm package - skip
-            return null;
+                if (matches.Count == 1)
+                {
+                    return matches[0].FilePath;
+                }
+                else if (matches.Count > 1)
+                {
+                    // Prefer exact match
+                    var exact = matches.FirstOrDefault(f =>
+                        f.FilePath.EndsWith("/" + importModule) ||
+                        f.FilePath.EndsWith("/" + importModule + ".js") ||
+                        f.FilePath.EndsWith("/" + importModule + ".jsx") ||
+                        f.FilePath.EndsWith("/" + importModule + ".ts") ||
+                        f.FilePath.EndsWith("/" + importModule + ".tsx"));
+                    if (exact != null) return exact.FilePath;
+                }
+
+                // If no match, it's likely an npm package - skip
+                return null;
+            }
         }
         else
         {
@@ -969,6 +986,62 @@ public class AnalysisService : IAnalysisService
         }
 
         return null;
+    }
+
+    // ---------------------------------------------------------------------
+    // Helper: Check if an import is an external npm package / framework
+    // These are NOT internal project files and should be skipped
+    // ---------------------------------------------------------------------
+    private bool IsExternalPackage(string importModule)
+    {
+        // Common npm packages and framework imports
+        var externalPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            // React ecosystem
+            "react", "react-dom", "react-router", "react-router-dom",
+            "react-query", "react-hook-form", "react-redux", "redux",
+            
+            // Next.js
+            "next", "next/head", "next/link", "next/image", "next/router",
+            "next/script", "next/navigation", "next/font", "next/dynamic",
+            
+            // Vue ecosystem  
+            "vue", "vuex", "vue-router", "pinia",
+            
+            // Angular
+            "@angular/core", "@angular/common", "@angular/router",
+            
+            // UI libraries
+            "tailwindcss", "styled-components", "emotion", "@emotion/react",
+            "chakra-ui", "@chakra-ui/react", "antd", "@mui/material",
+            
+            // Utilities
+            "lodash", "axios", "moment", "dayjs", "date-fns",
+            "uuid", "clsx", "classnames", "zod", "yup", "joi"
+        };
+
+        // Check for exact match
+        if (externalPackages.Contains(importModule))
+            return true;
+
+        // Check for scoped packages that are external (@codemirror/*, @radix-ui/*, etc.)
+        var externalScopes = new[] { "@codemirror/", "@radix-ui/", "@headlessui/", 
+            "@uiw/", "@tanstack/", "@types/", "@testing-library/", "@babel/",
+            "@emotion/", "@mui/", "@chakra-ui/", "@angular/", "@vue/", "@svelte/" };
+        
+        foreach (var scope in externalScopes)
+        {
+            if (importModule.StartsWith(scope, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        // Check if it starts with known framework prefixes
+        if (importModule.StartsWith("next/", StringComparison.OrdinalIgnoreCase) ||
+            importModule.StartsWith("react-", StringComparison.OrdinalIgnoreCase) ||
+            importModule.StartsWith("vue-", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
     }
 
     // ---------------------------------------------------------------------
