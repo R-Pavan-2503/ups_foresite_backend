@@ -704,7 +704,7 @@ public class DatabaseService : IDatabaseService
         await conn.OpenAsync();
 
         using var cmd = new NpgsqlCommand(
-            "SELECT id, repository_id, sha, message, committed_at FROM commits WHERE id = @id",
+            "SELECT id, repository_id, sha, message, author_name, author_email, committed_at FROM commits WHERE id = @id",
             conn);
 
         cmd.Parameters.AddWithValue("id", id);
@@ -718,7 +718,9 @@ public class DatabaseService : IDatabaseService
                 RepositoryId = reader.GetGuid(1),
                 Sha = reader.GetString(2),
                 Message = reader.IsDBNull(3) ? null : reader.GetString(3),
-                CommittedAt = reader.GetDateTime(4)
+                AuthorName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                AuthorEmail = reader.IsDBNull(5) ? null : reader.GetString(5),
+                CommittedAt = reader.GetDateTime(6)
             };
         }
         return null;
@@ -730,7 +732,7 @@ public class DatabaseService : IDatabaseService
         await conn.OpenAsync();
 
         using var cmd = new NpgsqlCommand(
-            "SELECT id, repository_id, sha, message, committed_at FROM commits WHERE repository_id = @repoId AND sha = @sha",
+            "SELECT id, repository_id, sha, message, author_name, author_email, committed_at FROM commits WHERE repository_id = @repoId AND sha = @sha",
             conn);
 
         cmd.Parameters.AddWithValue("repoId", repositoryId);
@@ -745,7 +747,9 @@ public class DatabaseService : IDatabaseService
                 RepositoryId = reader.GetGuid(1),
                 Sha = reader.GetString(2),
                 Message = reader.IsDBNull(3) ? null : reader.GetString(3),
-                CommittedAt = reader.GetDateTime(4)
+                AuthorName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                AuthorEmail = reader.IsDBNull(5) ? null : reader.GetString(5),
+                CommittedAt = reader.GetDateTime(6)
             };
         }
         return null;
