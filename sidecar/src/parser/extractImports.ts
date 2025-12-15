@@ -40,13 +40,21 @@ export function extractImports(rootNode: any, language: string) {
             }
         }
 
-        // Python import statement (e.g., import os)
+        // Python import statement (e.g., import os, import os, sys, import pandas as pd)
         if (language === 'python' && node.type === 'import_statement') {
-            // Find dotted_name child
+            // Handle multiple imports: import os, sys, json
+            // Handle aliased imports: import pandas as pd
             for (const child of node.children) {
                 if (child.type === 'dotted_name') {
+                    // Simple import: import os
                     imports.push({ module: child.text });
-                    break;
+                } else if (child.type === 'aliased_import') {
+                    // Aliased import: import pandas as pd
+                    // Extract the actual module name from the aliased_import node
+                    const nameNode = child.children?.find((c: any) => c.type === 'dotted_name');
+                    if (nameNode) {
+                        imports.push({ module: nameNode.text });
+                    }
                 }
             }
         }

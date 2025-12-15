@@ -948,6 +948,80 @@ public class AnalysisService : IAnalysisService
                 return null;
             }
         }
+        else if (language == "python")
+        {
+            // Python import resolution
+            _logger.LogInformation($"    🐍 Python import: '{importModule}' from sourceDir: '{sourceDir}'");
+            var allFiles = await _db.GetFilesByRepository(repositoryId);
+            
+            // Handle relative imports: .models, ..utils, ...core
+            if (importModule.StartsWith("."))
+            {
+                int dotCount = 0;
+                foreach (char c in importModule)
+                {
+                    if (c == '.') dotCount++;
+                    else break;
+                }
+                
+                // Get the module part after the dots
+                var modulePart = importModule.Substring(dotCount);
+                _logger.LogInformation($"    🐍 Relative import: dotCount={dotCount}, modulePart='{modulePart}'");
+                
+                // Navigate up from current directory
+                var currentDir = sourceDir;
+                for (int i = 1; i < dotCount && !string.IsNullOrEmpty(currentDir); i++)
+                {
+                    currentDir = Path.GetDirectoryName(currentDir)?.Replace("\\", "/");
+                }
+                _logger.LogInformation($"    🐍 After navigation: currentDir='{currentDir}'");
+                
+                if (!string.IsNullOrEmpty(modulePart))
+                {
+                    // Convert module.submodule to module/submodule
+                    var modulePath = modulePart.Replace(".", "/");
+                    targetPath = string.IsNullOrEmpty(currentDir) 
+                        ? modulePath 
+                        : $"{currentDir}/{modulePath}";
+                    _logger.LogInformation($"    🐍 Resolved targetPath: '{targetPath}'");
+                }
+                else
+                {
+                    // Just dots, refers to __init__.py in parent
+                    targetPath = currentDir;
+                    _logger.LogInformation($"    🐍 Package import, targetPath: '{targetPath}'");
+                }
+            }
+            else
+            {
+                // Absolute import: django.db.models -> django/db/models
+                // Try to find it in the repository
+                var modulePath = importModule.Replace(".", "/");
+                
+                // Look for exact matches first
+                var exactMatch = allFiles.FirstOrDefault(f => 
+                    f.FilePath.Equals(modulePath + ".py", StringComparison.OrdinalIgnoreCase));
+                if (exactMatch != null) return exactMatch.FilePath;
+                
+                // Look for package/__init__.py
+                var packageMatch = allFiles.FirstOrDefault(f => 
+                    f.FilePath.Equals(modulePath + "/__init__.py", StringComparison.OrdinalIgnoreCase));
+                if (packageMatch != null) return packageMatch.FilePath;
+                
+                // Look for partial matches within the repository structure
+                var partialMatches = allFiles.Where(f => 
+                    f.FilePath.EndsWith("/" + modulePath + ".py", StringComparison.OrdinalIgnoreCase) ||
+                    f.FilePath.EndsWith("/" + modulePath + "/__init__.py", StringComparison.OrdinalIgnoreCase) ||
+                    f.FilePath.Equals(modulePath + ".py", StringComparison.OrdinalIgnoreCase)
+                ).ToList();
+                
+                if (partialMatches.Count == 1)
+                    return partialMatches[0].FilePath;
+                
+                // For standard library or external packages, return null
+                return null;
+            }
+        }
         else
         {
             // Other languages - only handle relative imports for now
@@ -977,7 +1051,7 @@ public class AnalysisService : IAnalysisService
             if (withExt != null) return withExt.FilePath;
         }
 
-        // Try index files
+        // Try index files (for JS/TS)
         foreach (var ext in extensions)
         {
             var indexPath = Path.Combine(targetPath, "index" + ext).Replace("\\", "/");
@@ -985,6 +1059,21 @@ public class AnalysisService : IAnalysisService
             if (indexFile != null) return indexFile.FilePath;
         }
 
+        // Try __init__.py for Python packages
+        if (language == "python")
+        {
+            var initPath = targetPath + "/__init__.py";
+            var initFile = repoFiles.FirstOrDefault(f => f.FilePath.Equals(initPath, StringComparison.OrdinalIgnoreCase));
+            if (initFile != null) return initFile.FilePath;
+            
+            // Also try partial matches for Python
+            var partialMatch = repoFiles.FirstOrDefault(f => 
+                f.FilePath.EndsWith("/" + targetPath + ".py", StringComparison.OrdinalIgnoreCase) ||
+                f.FilePath.EndsWith("/" + targetPath + "/__init__.py", StringComparison.OrdinalIgnoreCase));
+            if (partialMatch != null) return partialMatch.FilePath;
+        }
+
+        _logger.LogWarning($"    ⚠️ Could not match targetPath '{targetPath}' to any file in repository");
         return null;
     }
 
