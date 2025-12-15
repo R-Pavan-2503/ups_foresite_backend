@@ -53,6 +53,20 @@ export function extractFunctions(rootNode: any, code: string, language: string) 
             });
         }
 
+        // Java method declarations and constructors
+        if (language === 'java' && (node.type === 'method_declaration' || node.type === 'constructor_declaration')) {
+            const nameNode = node.childForFieldName ? node.childForFieldName('name') : null;
+            const name = nameNode ? nameNode.text : 'anonymous';
+            const functionCode = node.text;
+
+            functions.push({
+                name,
+                code: functionCode,
+                startLine: node.startPosition.row + 1,
+                endLine: node.endPosition.row + 1
+            });
+        }
+
         // Traverse children
         if (node.children) {
             for (const child of node.children) {

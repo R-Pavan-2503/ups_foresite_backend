@@ -1022,6 +1022,37 @@ public class AnalysisService : IAnalysisService
                 return null;
             }
         }
+        else if (language == "java")
+        {
+            // Java import: com.example.ClassName -> com/example/ClassName.java
+            _logger.LogInformation($"    ☕ Java import: '{importModule}'");
+            var allFiles = await _db.GetFilesByRepository(repositoryId);
+            
+            // Convert package.Class to path (com.example.MyClass -> com/example/MyClass)
+            var classPath = importModule.Replace(".", "/");
+            
+            // Skip wildcard imports (com.example.*)
+            if (classPath.EndsWith("/*"))
+            {
+                _logger.LogInformation($"    → Skipping wildcard import: '{importModule}'");
+                return null;
+            }
+            
+            // Try to find matching .java file - exact match
+            var exactMatch = allFiles.FirstOrDefault(f => 
+                f.FilePath.Equals(classPath + ".java", StringComparison.OrdinalIgnoreCase));
+            if (exactMatch != null) return exactMatch.FilePath;
+            
+            // Look for partial path match (file might be in src/main/java/...)
+            var partialMatch = allFiles.FirstOrDefault(f =>
+                f.FilePath.EndsWith("/" + classPath + ".java", StringComparison.OrdinalIgnoreCase) ||
+                f.FilePath.Replace("\\", "/").EndsWith("/" + classPath + ".java", StringComparison.OrdinalIgnoreCase));
+            if (partialMatch != null) return partialMatch.FilePath;
+            
+            // External library or JDK class - return null
+            _logger.LogInformation($"    → Could not resolve Java import '{importModule}' (likely external)");
+            return null;
+        }
         else
         {
             // Other languages - only handle relative imports for now
