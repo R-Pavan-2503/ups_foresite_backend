@@ -121,6 +121,60 @@ public class FilesController : ControllerBase
             });
         }
 
+        // FALLBACK: If no semantic ownership exists but file has changes,
+        // calculate ownership from commit contributions (for single-commit files)
+        if (!ownershipDetails.Any() && changes.Any())
+        {
+            _logger.LogInformation($"No semantic ownership for file {fileId}, calculating from commit contributions");
+
+            // Aggregate contributions by author from file changes
+            var authorContributions = new Dictionary<string, (int additions, int deletions, User? user)>();
+
+            foreach (var change in changes)
+            {
+                var commit = await _db.GetCommitById(change.CommitId);
+                if (commit == null || string.IsNullOrEmpty(commit.AuthorName)) continue;
+
+                var authorName = commit.AuthorName;
+                var additions = change.Additions ?? 0;
+                var deletions = change.Deletions ?? 0;
+
+                if (!authorContributions.ContainsKey(authorName))
+                {
+                    var user = await _db.GetUserByAuthorName(authorName);
+                    authorContributions[authorName] = (additions, deletions, user);
+                }
+                else
+                {
+                    var prev = authorContributions[authorName];
+                    authorContributions[authorName] = (prev.additions + additions, prev.deletions + deletions, prev.user);
+                }
+            }
+
+            // Calculate total contribution for percentage calculation
+            var totalContribution = authorContributions.Values.Sum(c => c.additions + c.deletions);
+
+            foreach (var kvp in authorContributions.OrderByDescending(c => c.Value.additions + c.Value.deletions))
+            {
+                var contribution = kvp.Value.additions + kvp.Value.deletions;
+                var score = totalContribution > 0
+                    ? Math.Round((double)contribution / totalContribution, 4)
+                    : 1.0 / authorContributions.Count; // Equal split if no line changes
+
+                ownershipDetails.Add(new
+                {
+                    authorName = kvp.Key,
+                    semanticScore = score,
+                    avatarUrl = kvp.Value.user?.AvatarUrl,
+                    email = kvp.Value.user?.Email,
+                    userId = kvp.Value.user?.Id.ToString(),
+                    isContributorBased = true // Flag indicating this is not semantic ownership
+                });
+            }
+
+            _logger.LogInformation($"Calculated fallback ownership for {authorContributions.Count} contributor(s)");
+        }
+
         // Calculate most frequent author from file changes
         var mostFrequentAuthor = await _db.GetMostActiveAuthorForFile(fileId);
 
