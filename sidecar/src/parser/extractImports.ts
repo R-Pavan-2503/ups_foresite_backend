@@ -95,6 +95,17 @@ export function extractImports(rootNode: any, language: string) {
             }
         }
 
+        // Java imports: import pkg.ClassName; | import pkg.*; | import static pkg.Class.member;
+        if (language === 'java' && node.type === 'import_declaration') {
+            // Find the scoped_identifier or identifier child containing the import path
+            for (const child of node.children) {
+                if (child.type === 'scoped_identifier' || child.type === 'identifier') {
+                    imports.push({ module: child.text });
+                    break;
+                }
+            }
+        }
+
         // Traverse children
         if (node.children) {
             for (const child of node.children) {

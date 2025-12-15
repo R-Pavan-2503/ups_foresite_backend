@@ -3,8 +3,10 @@ import JavaScript from 'tree-sitter-javascript';
 import TypeScript from 'tree-sitter-typescript';
 import Python from 'tree-sitter-python';
 import Go from 'tree-sitter-go';
+import Java from 'tree-sitter-java';
 import { extractFunctions } from './extractFunctions';
 import { extractImports } from './extractImports';
+
 
 interface ParseResult {
     functions: Array<{
@@ -37,6 +39,9 @@ export async function parseCode(code: string, language: string): Promise<ParseRe
             break;
         case 'go':
             parser.setLanguage(Go);
+            break;
+        case 'java':
+            parser.setLanguage(Java);
             break;
         default:
             return { functions: [], imports: [] };
