@@ -192,21 +192,41 @@ public class GitHubService : IGitHubService
 
 
     // Pull Requests
-    public async Task<IReadOnlyList<Octokit.PullRequest>> GetPullRequests(string owner, string repo, PullRequestRequest? request = null)
+    public async Task<IReadOnlyList<Octokit.PullRequest>> GetPullRequests(string owner, string repo, PullRequestRequest? request = null, string? accessToken = null)
     {
         request ??= new PullRequestRequest();
+        
+        // If access token is provided, use authenticated client
+        if (!string.IsNullOrEmpty(accessToken))
+        {
+            var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+            {
+                Credentials = new Credentials(accessToken)
+            };
+            return await client.PullRequest.GetAllForRepository(owner, repo, request);
+        }
+        
         try
         {
             return await _client.PullRequest.GetAllForRepository(owner, repo, request);
         }
         catch (Exception)
         {
-            var installationToken = await GetInstallationTokenForRepo(owner, repo);
-            var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+            // Fallback to GitHub App if available
+            try
             {
-                Credentials = new Credentials(installationToken)
-            };
-            return await client.PullRequest.GetAllForRepository(owner, repo, request);
+                var installationToken = await GetInstallationTokenForRepo(owner, repo);
+                var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+                {
+                    Credentials = new Credentials(installationToken)
+                };
+                return await client.PullRequest.GetAllForRepository(owner, repo, request);
+            }
+            catch (FileNotFoundException)
+            {
+                // GitHub App not configured - return empty list instead of failing
+                return new List<Octokit.PullRequest>();
+            }
         }
     }
 

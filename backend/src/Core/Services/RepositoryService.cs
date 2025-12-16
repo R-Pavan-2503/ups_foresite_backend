@@ -19,7 +19,7 @@ public class RepositoryService : IRepositoryService
         Directory.CreateDirectory(_cloneBasePath);
     }
 
-    public async Task<string> CloneBareRepository(string cloneUrl, string owner, string repoName)
+    public async Task<string> CloneBareRepository(string cloneUrl, string owner, string repoName, string? accessToken = null)
     {
         var repoPath = Path.Combine(_cloneBasePath, $"{owner}_{repoName}.git");
 
@@ -30,10 +30,23 @@ public class RepositoryService : IRepositoryService
 
         await Task.Run(() =>
         {
-            LibGit2Sharp.Repository.Clone(cloneUrl, repoPath, new CloneOptions
+            var cloneOptions = new CloneOptions
             {
                 IsBare = true
-            });
+            };
+
+            // Add authentication for private repositories
+            if (!string.IsNullOrEmpty(accessToken))
+            {
+                cloneOptions.FetchOptions.CredentialsProvider = (url, usernameFromUrl, types) =>
+                    new UsernamePasswordCredentials
+                    {
+                        Username = accessToken,
+                        Password = string.Empty
+                    };
+            }
+
+            LibGit2Sharp.Repository.Clone(cloneUrl, repoPath, cloneOptions);
         });
 
         return repoPath;
@@ -101,7 +114,7 @@ public class RepositoryService : IRepositoryService
         }
     }
 
-    public async Task FetchRepository(string owner, string repoName)
+    public async Task FetchRepository(string owner, string repoName, string? accessToken = null)
     {
         await Task.Run(() =>
         {
@@ -116,6 +129,17 @@ public class RepositoryService : IRepositoryService
             {
                 Prune = true
             };
+
+            // Add authentication for private repositories
+            if (!string.IsNullOrEmpty(accessToken))
+            {
+                fetchOptions.CredentialsProvider = (url, usernameFromUrl, types) =>
+                    new UsernamePasswordCredentials
+                    {
+                        Username = accessToken,
+                        Password = string.Empty
+                    };
+            }
 
             Commands.Fetch(repo, remote.Name, refSpecs, fetchOptions, "fetch");
 

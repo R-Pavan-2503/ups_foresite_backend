@@ -66,10 +66,21 @@ public class RepositoriesController : ControllerBase
     }
 
     [HttpPost("{owner}/{repo}/analyze")]
-    public async Task<IActionResult> AnalyzeRepository(string owner, string repo, [FromQuery] Guid userId)
+    public async Task<IActionResult> AnalyzeRepository(
+        string owner, 
+        string repo, 
+        [FromQuery] Guid userId,
+        [FromHeader(Name = "Authorization")] string? authorization = null)
     {
         try
         {
+            // Extract access token from Authorization header
+            string? accessToken = null;
+            if (!string.IsNullOrEmpty(authorization) && authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                accessToken = authorization.Substring("Bearer ".Length).Trim();
+            }
+
             // Check if repository already exists in database
             var existing = await _db.GetRepositoryByName(owner, repo);
 
@@ -96,11 +107,12 @@ public class RepositoriesController : ControllerBase
 
                     // Clone bare repository immediately in background so it's ready when user views files
                     var cloneUrl = $"https://github.com/{owner}/{repo}.git";
+                    var tokenForClone = accessToken; // Capture for closure
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            await _repoService.CloneBareRepository(cloneUrl, owner, repo);
+                            await _repoService.CloneBareRepository(cloneUrl, owner, repo, tokenForClone);
                             _logger.LogInformation($"✓ Bare clone created for {owner}/{repo} for user {userId}");
                         }
                         catch (Exception ex)
@@ -141,10 +153,11 @@ public class RepositoriesController : ControllerBase
             // Grant access to the user who is analyzing
             await _db.GrantRepositoryAccess(userId, repository.Id, userId);
 
-            // Start analysis in background
+            // Start analysis in background with access token for private repos
+            var tokenForAnalysis = accessToken; // Capture for closure
             _ = Task.Run(async () =>
             {
-                await _analysis.AnalyzeRepository(owner, repo, repository.Id, userId);
+                await _analysis.AnalyzeRepository(owner, repo, repository.Id, userId, tokenForAnalysis);
             });
 
             return Ok(new { message = "Analysis started", repositoryId = repository.Id, newAnalysis = true });
@@ -170,17 +183,26 @@ public class RepositoriesController : ControllerBase
 
 
     [HttpGet("{repositoryId}")]
-    public async Task<IActionResult> GetRepository(Guid repositoryId)
+    public async Task<IActionResult> GetRepository(
+        Guid repositoryId,
+        [FromHeader(Name = "Authorization")] string? authorization = null)
     {
         var repository = await _db.GetRepositoryById(repositoryId);
         if (repository == null) return NotFound(new { error = "Repository not found" });
+
+        // Extract access token from Authorization header
+        string? accessToken = null;
+        if (!string.IsNullOrEmpty(authorization) && authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            accessToken = authorization.Substring("Bearer ".Length).Trim();
+        }
 
         // Edge case: Ensure bare clone exists (in case it was deleted)
         // This happens when user has database access but no local clone
         var cloneUrl = $"https://github.com/{repository.OwnerUsername}/{repository.Name}.git";
         try
         {
-            await _repoService.CloneBareRepository(cloneUrl, repository.OwnerUsername, repository.Name);
+            await _repoService.CloneBareRepository(cloneUrl, repository.OwnerUsername, repository.Name, accessToken);
             _logger.LogInformation($"✓ Verified bare clone exists for {repository.OwnerUsername}/{repository.Name}");
         }
         catch (Exception ex)
@@ -244,10 +266,19 @@ public class RepositoriesController : ControllerBase
     }
 
     [HttpPost("analyze-url")]
-    public async Task<IActionResult> AnalyzeRepositoryByUrl([FromBody] AnalyzeUrlRequest request)
+    public async Task<IActionResult> AnalyzeRepositoryByUrl(
+        [FromBody] AnalyzeUrlRequest request,
+        [FromHeader(Name = "Authorization")] string? authorization = null)
     {
         try
         {
+            // Extract access token from Authorization header
+            string? accessToken = null;
+            if (!string.IsNullOrEmpty(authorization) && authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                accessToken = authorization.Substring("Bearer ".Length).Trim();
+            }
+
             // Parse GitHub URL
             var (owner, repo) = ParseGitHubUrl(request.Url);
 
@@ -283,11 +314,12 @@ public class RepositoriesController : ControllerBase
 
                     // Clone bare repository immediately in background so it's ready when user views files
                     var cloneUrl = $"https://github.com/{owner}/{repo}.git";
+                    var tokenForClone = accessToken; // Capture for closure
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            await _repoService.CloneBareRepository(cloneUrl, owner, repo);
+                            await _repoService.CloneBareRepository(cloneUrl, owner, repo, tokenForClone);
                             _logger.LogInformation($"✓ Bare clone created for {owner}/{repo} for user {request.UserId}");
                         }
                         catch (Exception ex)
@@ -333,10 +365,11 @@ public class RepositoriesController : ControllerBase
             // Grant access to the user who is analyzing
             await _db.GrantRepositoryAccess(request.UserId, repository.Id, request.UserId);
 
-            // Start analysis in background
+            // Start analysis in background with access token for private repos
+            var tokenForAnalysis = accessToken; // Capture for closure
             _ = Task.Run(async () =>
             {
-                await _analysis.AnalyzeRepository(owner, repo, repository.Id, request.UserId);
+                await _analysis.AnalyzeRepository(owner, repo, repository.Id, request.UserId, tokenForAnalysis);
             });
 
             return Ok(new
