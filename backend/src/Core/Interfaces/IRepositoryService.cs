@@ -56,4 +56,10 @@ public interface IRepositoryService
     /// Get actual line additions and deletions for a file in a commit.
     /// </summary>
     (int additions, int deletions) GetFileLineStats(LibGit2Sharp.Repository repo, LibGit2Sharp.Commit commit, string filePath);
+
+    /// <summary>
+    /// Get ALL file paths in the repository at HEAD commit.
+    /// This enumerates the entire tree, not just changed files.
+    /// </summary>
+    List<string> GetAllFilesAtHead(LibGit2Sharp.Repository repo);
 }

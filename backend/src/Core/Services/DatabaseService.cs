@@ -830,20 +830,18 @@ public class DatabaseService : IDatabaseService
         using var conn = GetConnection();
         await conn.OpenAsync();
 
-        // Get files that were modified in commits on this branch using junction table
+        // Return ALL files in the repository
+        // Note: Files exist at the repository level, not per-branch.
+        // The branch parameter is kept for API compatibility but we return all repo files.
         using var cmd = new NpgsqlCommand(
-            @"SELECT DISTINCT rf.id, rf.repository_id, rf.file_path, rf.total_lines 
+            @"SELECT rf.id, rf.repository_id, rf.file_path, rf.total_lines 
               FROM repository_files rf 
-              JOIN file_changes fc ON rf.id = fc.file_id 
-              JOIN commits c ON fc.commit_id = c.id 
-              JOIN commit_branches cb ON c.id = cb.commit_id
-              JOIN branches b ON cb.branch_id = b.id
-              WHERE rf.repository_id = @repoId AND b.name = @branchName 
+              WHERE rf.repository_id = @repoId 
               ORDER BY rf.file_path",
             conn);
 
         cmd.Parameters.AddWithValue("repoId", repositoryId);
-        cmd.Parameters.AddWithValue("branchName", branchName);
+        // branchName is ignored - files exist at repo level
 
         var files = new List<RepositoryFile>();
         using var reader = await cmd.ExecuteReaderAsync();
