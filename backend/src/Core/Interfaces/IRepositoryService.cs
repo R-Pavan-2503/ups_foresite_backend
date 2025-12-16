@@ -8,7 +8,8 @@ public interface IRepositoryService
     /// Clone a repository as a bare clone for efficient access.
     /// Returns the path to the bare repository.
     /// </summary>
-    Task<string> CloneBareRepository(string cloneUrl, string owner, string repoName);
+    /// <param name="accessToken">Optional GitHub access token for private repositories</param>
+    Task<string> CloneBareRepository(string cloneUrl, string owner, string repoName, string? accessToken = null);
 
     /// <summary>
     /// Get the LibGit2Sharp Repository object for a bare clone.
@@ -33,7 +34,8 @@ public interface IRepositoryService
     /// <summary>
     /// Fetch latest changes from remote.
     /// </summary>
-    Task FetchRepository(string owner, string repoName);
+    /// <param name="accessToken">Optional GitHub access token for private repositories</param>
+    Task FetchRepository(string owner, string repoName, string? accessToken = null);
 
     /// <summary>
     /// Determine language from file extension.

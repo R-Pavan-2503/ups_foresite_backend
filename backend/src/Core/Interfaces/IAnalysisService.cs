@@ -14,7 +14,8 @@ public interface IAnalysisService
     /// 5. Calculate semantic ownership
     /// 6. Attach webhook
     /// </summary>
-    Task AnalyzeRepository(string owner, string repoName, Guid repositoryId, Guid userId);
+    /// <param name="accessToken">Optional GitHub access token for private repositories</param>
+    Task AnalyzeRepository(string owner, string repoName, Guid repositoryId, Guid userId, string? accessToken = null);
 
     /// <summary>
     /// Calculate semantic ownership for a file based on embedding deltas.

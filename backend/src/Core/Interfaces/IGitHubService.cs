@@ -22,7 +22,7 @@ public interface IGitHubService
 
 
     // Pull Requests
-    Task<IReadOnlyList<Octokit.PullRequest>> GetPullRequests(string owner, string repo, PullRequestRequest? request = null);
+    Task<IReadOnlyList<Octokit.PullRequest>> GetPullRequests(string owner, string repo, PullRequestRequest? request = null, string? accessToken = null);
     Task<Octokit.PullRequest> GetPullRequest(string owner, string repo, int number, string? accessToken = null);
     Task<IReadOnlyList<PullRequestFile>> GetPullRequestFiles(string owner, string repo, int number, string? accessToken = null);
 

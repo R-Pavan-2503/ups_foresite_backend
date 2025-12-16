@@ -238,7 +238,8 @@ public class FilesController : ControllerBase
     public async Task<IActionResult> GetFileContent(
         Guid fileId,
         [FromQuery] string? commitSha = null,
-        [FromQuery] string? branchName = null)
+        [FromQuery] string? branchName = null,
+        [FromHeader(Name = "Authorization")] string? authorization = null)
     {
         try
         {
@@ -248,9 +249,16 @@ public class FilesController : ControllerBase
             var repository = await _db.GetRepositoryById(file.RepositoryId);
             if (repository == null) return NotFound(new { error = "Repository not found" });
 
+            // Extract access token from Authorization header
+            string? accessToken = null;
+            if (!string.IsNullOrEmpty(authorization) && authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                accessToken = authorization.Substring("Bearer ".Length).Trim();
+            }
+
             // Ensure bare clone exists locally (create if doesn't exist)
             var cloneUrl = $"https://github.com/{repository.OwnerUsername}/{repository.Name}.git";
-            await _repoService.CloneBareRepository(cloneUrl, repository.OwnerUsername, repository.Name);
+            await _repoService.CloneBareRepository(cloneUrl, repository.OwnerUsername, repository.Name, accessToken);
 
             // Get the cloned repository
             using var repo = _repoService.GetRepository(repository.OwnerUsername, repository.Name);

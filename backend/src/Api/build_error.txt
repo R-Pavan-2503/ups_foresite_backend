@@ -1,0 +1,25 @@
+﻿  Determining projects to restore...
+  All projects are up-to-date for restore.
+D:\ups\foresite\backend\backend\src\Api\Controllers\AuthController.cs(72,57): warning CS8604: Possible null reference argument for parameter 'avatarUrl' in 'Task IDatabaseService.UpdateUserAvatar(Guid userId, string avatarUrl)'. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Core\Services\RepositoryService.cs(41,30): error CS1061: 'CloneOptions' does not contain a definition for 'CredentialsProvider' and no accessible extension method 'CredentialsProvider' accepting a first argument of type 'CloneOptions' could be found (are you missing a using directive or an assembly reference?) [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Core\Services\AnalysisService.cs(444,67): warning CS8604: Possible null reference argument for parameter 'oldEmbedding' in 'double AnalysisService.CalculateSemanticDelta(float[] newEmbedding, float[] oldEmbedding)'. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Core\Services\GitHubService.cs(291,29): warning CS1998: This async method lacks 'await' operators and will run synchronously. Consider using the 'await' operator to await non-blocking API calls, or 'await Task.Run(...)' to do CPU-bound work on a background thread. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Api\Controllers\FilesController.cs(101,31): warning CS8629: Nullable value type may be null. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Api\Controllers\FilesController.cs(363,89): warning CS8620: Argument of type 'List<string?>' cannot be used for parameter 'codeChunks' of type 'List<string>' in 'Task<(bool success, string? summary, string? error)> IGroqService.GenerateFileSummaryAsync(List<string> codeChunks)' due to differences in the nullability of reference types. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Core\Services\AnalysisService.cs(1193,38): warning CS8602: Dereference of a possibly null reference. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Core\Services\AnalysisService.cs(1193,49): warning CS8602: Dereference of a possibly null reference. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+
+Build FAILED.
+
+D:\ups\foresite\backend\backend\src\Api\Controllers\AuthController.cs(72,57): warning CS8604: Possible null reference argument for parameter 'avatarUrl' in 'Task IDatabaseService.UpdateUserAvatar(Guid userId, string avatarUrl)'. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Core\Services\AnalysisService.cs(444,67): warning CS8604: Possible null reference argument for parameter 'oldEmbedding' in 'double AnalysisService.CalculateSemanticDelta(float[] newEmbedding, float[] oldEmbedding)'. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Core\Services\GitHubService.cs(291,29): warning CS1998: This async method lacks 'await' operators and will run synchronously. Consider using the 'await' operator to await non-blocking API calls, or 'await Task.Run(...)' to do CPU-bound work on a background thread. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Api\Controllers\FilesController.cs(101,31): warning CS8629: Nullable value type may be null. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Api\Controllers\FilesController.cs(363,89): warning CS8620: Argument of type 'List<string?>' cannot be used for parameter 'codeChunks' of type 'List<string>' in 'Task<(bool success, string? summary, string? error)> IGroqService.GenerateFileSummaryAsync(List<string> codeChunks)' due to differences in the nullability of reference types. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Core\Services\AnalysisService.cs(1193,38): warning CS8602: Dereference of a possibly null reference. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Core\Services\AnalysisService.cs(1193,49): warning CS8602: Dereference of a possibly null reference. [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+D:\ups\foresite\backend\backend\src\Core\Services\RepositoryService.cs(41,30): error CS1061: 'CloneOptions' does not contain a definition for 'CredentialsProvider' and no accessible extension method 'CredentialsProvider' accepting a first argument of type 'CloneOptions' could be found (are you missing a using directive or an assembly reference?) [D:\ups\foresite\backend\backend\src\Api\CodeFamily.Api.csproj]
+    7 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:02.18

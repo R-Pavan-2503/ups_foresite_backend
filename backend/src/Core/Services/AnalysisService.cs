@@ -46,7 +46,7 @@ public class AnalysisService : IAnalysisService
         _logger = logger;
     }
 
-    public async Task AnalyzeRepository(string owner, string repoName, Guid repositoryId, Guid userId)
+    public async Task AnalyzeRepository(string owner, string repoName, Guid repositoryId, Guid userId, string? accessToken = null)
     {
         _logger.LogInformation($"🚀 Starting COMPLETE analysis of {owner}/{repoName}");
         _fileAuthorDeltas.Clear();
@@ -57,7 +57,7 @@ public class AnalysisService : IAnalysisService
 
             // Step 1: Bare clone (or reuse existing)
             var cloneUrl = $"https://github.com/{owner}/{repoName}.git";
-            var repoPath = await _repoService.CloneBareRepository(cloneUrl, owner, repoName);
+            var repoPath = await _repoService.CloneBareRepository(cloneUrl, owner, repoName, accessToken);
 
             using var repo = _repoService.GetRepository(owner, repoName);
 
@@ -208,7 +208,7 @@ public class AnalysisService : IAnalysisService
 
             // Step 4.6: Fetch and store pull requests from GitHub
             _logger.LogInformation($"📋 Fetching pull  requests from GitHub for {owner}/{repoName}...");
-            await FetchAndStorePullRequests(owner, repoName, repositoryId);
+            await FetchAndStorePullRequests(owner, repoName, repositoryId, accessToken);
 
             // Step 5: Calculate dependency graph and blast radius
             _logger.LogInformation("📊 Calculating dependency graph and blast radius...");
@@ -686,7 +686,7 @@ public class AnalysisService : IAnalysisService
     // ---------------------------------------------------------------------
     // Fetch and store pull requests from GitHub API
     // ---------------------------------------------------------------------
-    private async Task FetchAndStorePullRequests(string owner, string repo, Guid repositoryId)
+    private async Task FetchAndStorePullRequests(string owner, string repo, Guid repositoryId, string? accessToken = null)
     {
         try
         {
@@ -698,11 +698,11 @@ public class AnalysisService : IAnalysisService
             var closedRequest = new Octokit.PullRequestRequest { State = Octokit.ItemStateFilter.Closed };
 
             _logger.LogInformation($"   🔍 Fetching open PRs from GitHub API...");
-            var openPRs = await _github.GetPullRequests(owner, repo, openRequest);
+            var openPRs = await _github.GetPullRequests(owner, repo, openRequest, accessToken);
             _logger.LogInformation($"   ✅ Fetched {openPRs.Count} open PRs");
 
             _logger.LogInformation($"   🔍 Fetching closed PRs from GitHub API...");
-            var closedPRs = await _github.GetPullRequests(owner, repo, closedRequest);
+            var closedPRs = await _github.GetPullRequests(owner, repo, closedRequest, accessToken);
 
             var allPRs = openPRs.Concat(closedPRs).ToList();
             _logger.LogInformation($"   Found {allPRs.Count} total pull requests ({openPRs.Count} open, {closedPRs.Count} closed)");
