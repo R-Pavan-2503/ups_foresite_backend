@@ -62,4 +62,10 @@ public interface IRepositoryService
     /// This enumerates the entire tree, not just changed files.
     /// </summary>
     List<string> GetAllFilesAtHead(LibGit2Sharp.Repository repo);
+
+    /// <summary>
+    /// Get ALL file paths in the repository at a specific branch's HEAD.
+    /// This enumerates the entire tree for that branch.
+    /// </summary>
+    List<string> GetAllFilesAtBranch(LibGit2Sharp.Repository repo, string branchName);
 }

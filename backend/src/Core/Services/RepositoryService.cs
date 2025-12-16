@@ -259,4 +259,31 @@ public class RepositoryService : IRepositoryService
         EnumerateTreeRecursive(headCommit.Tree, "", allFiles);
         return allFiles;
     }
+
+    public List<string> GetAllFilesAtBranch(LibGit2Sharp.Repository repo, string branchName)
+    {
+        var allFiles = new List<string>();
+        
+        // Normalize branch name (remove origin/ prefix if present)
+        var normalizedBranchName = branchName.Replace("origin/", "");
+
+        // Try to find the branch (check both local and remote)
+        var branch = repo.Branches[normalizedBranchName]
+                     ?? repo.Branches[$"origin/{normalizedBranchName}"];
+
+        if (branch == null)
+        {
+            return allFiles;
+        }
+
+        var branchTip = branch.Tip;
+        if (branchTip == null)
+        {
+            return allFiles;
+        }
+
+        // Recursively enumerate all files in the branch's tree
+        EnumerateTreeRecursive(branchTip.Tree, "", allFiles);
+        return allFiles;
+    }
 }

@@ -9,11 +9,16 @@ namespace CodeFamily.Api.Controllers;
 public class BranchesController : ControllerBase
 {
     private readonly IDatabaseService _db;
+    private readonly IRepositoryService _repoService;
     private readonly ILogger<BranchesController> _logger;
 
-    public BranchesController(IDatabaseService db, ILogger<BranchesController> logger)
+    public BranchesController(
+        IDatabaseService db,
+        IRepositoryService repoService,
+        ILogger<BranchesController> logger)
     {
         _db = db;
+        _repoService = repoService;
         _logger = logger;
     }
 
@@ -85,8 +90,41 @@ public class BranchesController : ControllerBase
         try
         {
             _logger.LogInformation($"Fetching files for branch '{branchName}' in repository {repositoryId}");
-            var files = await _db.GetFilesByBranch(repositoryId, branchName);
-            return Ok(files);
+            
+            // Get repository info to open bare clone
+            var repository = await _db.GetRepositoryById(repositoryId);
+            if (repository == null)
+            {
+                return NotFound(new { error = "Repository not found" });
+            }
+
+            // Get all files from the database (with IDs for navigation)
+            var dbFiles = await _db.GetFilesByBranch(repositoryId, branchName);
+
+            // Get actual files at branch HEAD from bare clone (source of truth)
+            HashSet<string> actualFilesAtBranch;
+            try
+            {
+                using var repo = _repoService.GetRepository(repository.OwnerUsername, repository.Name);
+                var filesFromClone = _repoService.GetAllFilesAtBranch(repo, branchName);
+                actualFilesAtBranch = new HashSet<string>(filesFromClone, StringComparer.OrdinalIgnoreCase);
+                _logger.LogInformation($"Found {actualFilesAtBranch.Count} files at branch '{branchName}' HEAD");
+            }
+            catch (Exception ex)
+            {
+                // If bare clone doesn't exist or can't be opened, fall back to database only
+                _logger.LogWarning($"Could not access bare clone for filtering: {ex.Message}. Returning all database files.");
+                return Ok(dbFiles);
+            }
+
+            // Filter: only return database files that exist in the bare clone at this branch
+            var filteredFiles = dbFiles
+                .Where(f => actualFilesAtBranch.Contains(f.FilePath))
+                .ToList();
+
+            _logger.LogInformation($"Filtered {dbFiles.Count} DB files to {filteredFiles.Count} actual files at branch '{branchName}'");
+            
+            return Ok(filteredFiles);
         }
         catch (Exception ex)
         {
@@ -95,3 +133,4 @@ public class BranchesController : ControllerBase
         }
     }
 }
+
