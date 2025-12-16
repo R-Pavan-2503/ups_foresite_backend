@@ -907,19 +907,50 @@ public class AnalysisService : IAnalysisService
         }
         else if (language is "javascript" or "typescript")
         {
-            // Handle Next.js/TypeScript path alias: @/ maps to project root
-            if (importModule.StartsWith("@/"))
-            {
-                // Remove @/ prefix to get the relative path from root
-                var aliasPath = importModule.Substring(2); // "@/components/Button" -> "components/Button"
-                targetPath = aliasPath;
-                _logger.LogInformation($"    → Next.js @/ alias resolved to: '{targetPath}'");
-            }
-            // Skip known npm packages / framework imports (they're external dependencies)
-            else if (IsExternalPackage(importModule))
+            // Skip known npm packages / framework imports FIRST (they're external dependencies)
+            if (IsExternalPackage(importModule))
             {
                 _logger.LogInformation($"    → Skipping external package: '{importModule}'");
                 return null;
+            }
+            
+            // Handle various @ alias patterns
+            // Pattern 1: @src/components/X -> src/components/X (Docusaurus/custom)
+            if (importModule.StartsWith("@src/"))
+            {
+                var aliasPath = importModule.Substring(1); // "@src/components/X" -> "src/components/X"
+                targetPath = aliasPath;
+                _logger.LogInformation($"    → @src/ alias resolved to: '{targetPath}'");
+            }
+            // Pattern 2: @/components/X -> try both root and src/ folder
+            else if (importModule.StartsWith("@/"))
+            {
+                var aliasPath = importModule.Substring(2); // "@/components/Button" -> "components/Button"
+                
+                // First, check if src/ folder version exists
+                var allFiles = await _db.GetFilesByRepository(repositoryId);
+                var srcPath = "src/" + aliasPath;
+                var srcMatch = allFiles.FirstOrDefault(f => 
+                    f.FilePath.StartsWith(srcPath, StringComparison.OrdinalIgnoreCase) ||
+                    f.FilePath.Equals(srcPath + ".ts", StringComparison.OrdinalIgnoreCase) ||
+                    f.FilePath.Equals(srcPath + ".tsx", StringComparison.OrdinalIgnoreCase) ||
+                    f.FilePath.Equals(srcPath + ".js", StringComparison.OrdinalIgnoreCase) ||
+                    f.FilePath.Equals(srcPath + ".jsx", StringComparison.OrdinalIgnoreCase) ||
+                    f.FilePath.Equals(srcPath + "/index.ts", StringComparison.OrdinalIgnoreCase) ||
+                    f.FilePath.Equals(srcPath + "/index.tsx", StringComparison.OrdinalIgnoreCase) ||
+                    f.FilePath.Equals(srcPath + "/index.js", StringComparison.OrdinalIgnoreCase));
+                
+                if (srcMatch != null)
+                {
+                    targetPath = srcPath;
+                    _logger.LogInformation($"    → @/ alias resolved to src/: '{targetPath}'");
+                }
+                else
+                {
+                    // Fallback to root-relative path
+                    targetPath = aliasPath;
+                    _logger.LogInformation($"    → @/ alias resolved to root: '{targetPath}'");
+                }
             }
             else
             {
@@ -1120,10 +1151,25 @@ public class AnalysisService : IAnalysisService
             // React ecosystem
             "react", "react-dom", "react-router", "react-router-dom",
             "react-query", "react-hook-form", "react-redux", "redux",
+            "react-responsive", "react-dropzone", "react-player",
             
             // Next.js
             "next", "next/head", "next/link", "next/image", "next/router",
             "next/script", "next/navigation", "next/font", "next/dynamic",
+            "next/headers", "next/cache",
+            
+            // Animation libraries
+            "gsap", "framer-motion", "motion", "lottie-react",
+            
+            // Build tools & Vite
+            "vite", "esbuild", "rollup", "webpack",
+            
+            // Database & ORM
+            "drizzle-orm", "prisma", "typeorm", "mongoose", "sequelize",
+            "better-auth", "lucia", "next-auth",
+            
+            // Rate limiting & Security
+            "arcjet",
             
             // Vue ecosystem  
             "vue", "vuex", "vue-router", "pinia",
@@ -1134,20 +1180,37 @@ public class AnalysisService : IAnalysisService
             // UI libraries
             "tailwindcss", "styled-components", "emotion", "@emotion/react",
             "chakra-ui", "@chakra-ui/react", "antd", "@mui/material",
+            "tailwind-merge",
             
             // Utilities
             "lodash", "axios", "moment", "dayjs", "date-fns",
-            "uuid", "clsx", "classnames", "zod", "yup", "joi"
+            "uuid", "clsx", "classnames", "zod", "yup", "joi",
+            "globals"
         };
 
         // Check for exact match
         if (externalPackages.Contains(importModule))
             return true;
 
-        // Check for scoped packages that are external (@codemirror/*, @radix-ui/*, etc.)
-        var externalScopes = new[] { "@codemirror/", "@radix-ui/", "@headlessui/", 
+        // Check for scoped packages that are external
+        var externalScopes = new[] { 
+            // Build tools & frameworks
+            "@codemirror/", "@radix-ui/", "@headlessui/", 
             "@uiw/", "@tanstack/", "@types/", "@testing-library/", "@babel/",
-            "@emotion/", "@mui/", "@chakra-ui/", "@angular/", "@vue/", "@svelte/" };
+            "@emotion/", "@mui/", "@chakra-ui/", "@angular/", "@vue/", "@svelte/",
+            // Animation
+            "@gsap/",
+            // Vite & build
+            "@vitejs/", "@tailwindcss/", "@eslint/",
+            // Docusaurus
+            "@theme/", "@docusaurus/", "@site/",
+            // Next.js specific
+            "@next/",
+            // Database
+            "@prisma/", "@drizzle/",
+            // Auth
+            "@auth/"
+        };
         
         foreach (var scope in externalScopes)
         {
@@ -1158,7 +1221,10 @@ public class AnalysisService : IAnalysisService
         // Check if it starts with known framework prefixes
         if (importModule.StartsWith("next/", StringComparison.OrdinalIgnoreCase) ||
             importModule.StartsWith("react-", StringComparison.OrdinalIgnoreCase) ||
-            importModule.StartsWith("vue-", StringComparison.OrdinalIgnoreCase))
+            importModule.StartsWith("vue-", StringComparison.OrdinalIgnoreCase) ||
+            importModule.StartsWith("gsap/", StringComparison.OrdinalIgnoreCase) ||
+            importModule.StartsWith("eslint-plugin-", StringComparison.OrdinalIgnoreCase) ||
+            importModule.StartsWith("better-auth/", StringComparison.OrdinalIgnoreCase))
             return true;
 
         return false;
