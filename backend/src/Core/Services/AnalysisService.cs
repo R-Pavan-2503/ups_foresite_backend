@@ -196,6 +196,10 @@ public class AnalysisService : IAnalysisService
 
             _logger.LogInformation($"✅ Processed all {branches.Count} branches");
 
+            // Step 3.5: Ensure ALL files at HEAD are in the database (for file tree completeness)
+            _logger.LogInformation("📂 Ensuring all files at HEAD are captured in database...");
+            await EnsureAllFilesAtHead(repo, repositoryId);
+
             // Step 4: Calculate semantic ownership for ALL files
             _logger.LogInformation("🧮 Calculating semantic ownership scores...");
             await CalculateAllFileOwnership(repositoryId);
@@ -664,8 +668,39 @@ public class AnalysisService : IAnalysisService
     }
 
     // ---------------------------------------------------------------------
-    // Register GitHub webhook via the GitHub service
+    // Ensure ALL files in the repository at HEAD are in the database
+    // This ensures the file tree shows ALL files, not just those in commits
     // ---------------------------------------------------------------------
+    private async Task EnsureAllFilesAtHead(LibGitRepository repo, Guid repositoryId)
+    {
+        var allFilePaths = _repoService.GetAllFilesAtHead(repo);
+        _logger.LogInformation($"📂 Found {allFilePaths.Count} total files in repository at HEAD");
+
+        int createdCount = 0;
+        foreach (var filePath in allFilePaths)
+        {
+            // Check if file already exists in database
+            var existingFile = await _db.GetFileByPath(repositoryId, filePath);
+            if (existingFile == null)
+            {
+                // File not in database - create it
+                await _db.CreateFile(new RepositoryFile
+                {
+                    RepositoryId = repositoryId,
+                    FilePath = filePath
+                });
+                createdCount++;
+                
+                if (createdCount % 50 == 0)
+                {
+                    _logger.LogInformation($"   📝 Created {createdCount} missing file records...");
+                }
+            }
+        }
+
+        _logger.LogInformation($"✅ Ensured all files at HEAD are in database. Created {createdCount} new file records.");
+    }
+
     // ---------------------------------------------------------------------
     // Register GitHub webhook via the GitHub service
     // ---------------------------------------------------------------------

@@ -62,6 +62,66 @@ public class RepositoryRefreshController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Sync missing files for an already-analyzed repository.
+    /// This adds any files that exist at HEAD but aren't in the database,
+    /// without requiring a full re-analysis.
+    /// </summary>
+    [HttpPost("{repositoryId}/sync-files")]
+    public async Task<IActionResult> SyncMissingFiles(Guid repositoryId)
+    {
+        try
+        {
+            var repository = await _db.GetRepositoryById(repositoryId);
+            if (repository == null)
+                return NotFound(new { error = "Repository not found" });
+
+            _logger.LogInformation($"📂 Syncing missing files for {repository.OwnerUsername}/{repository.Name}");
+
+            // Fetch latest from remote first
+            await _repoService.FetchRepository(repository.OwnerUsername, repository.Name);
+
+            // Get the bare clone
+            using var repo = _repoService.GetRepository(repository.OwnerUsername, repository.Name);
+
+            // Get all files at HEAD
+            var allFilePaths = _repoService.GetAllFilesAtHead(repo);
+            _logger.LogInformation($"📂 Found {allFilePaths.Count} total files in repository at HEAD");
+
+            int createdCount = 0;
+            foreach (var filePath in allFilePaths)
+            {
+                // Check if file already exists in database
+                var existingFile = await _db.GetFileByPath(repository.Id, filePath);
+                if (existingFile == null)
+                {
+                    // File not in database - create it
+                    await _db.CreateFile(new Core.Models.RepositoryFile
+                    {
+                        RepositoryId = repository.Id,
+                        FilePath = filePath
+                    });
+                    createdCount++;
+                }
+            }
+
+            _logger.LogInformation($"✅ Sync complete. Created {createdCount} new file records.");
+
+            return Ok(new
+            {
+                message = "File sync complete",
+                repositoryId = repository.Id,
+                totalFilesAtHead = allFilePaths.Count,
+                newFilesCreated = createdCount
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"File sync failed: {ex.Message}");
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
     private async Task PerformIncrementalRefresh(Core.Models.Repository repository)
     {
         try

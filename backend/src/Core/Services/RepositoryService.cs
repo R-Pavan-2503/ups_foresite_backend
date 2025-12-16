@@ -244,4 +244,19 @@ public class RepositoryService : IRepositoryService
 
         return (0, 0);
     }
+
+    public List<string> GetAllFilesAtHead(LibGit2Sharp.Repository repo)
+    {
+        var allFiles = new List<string>();
+        var headCommit = repo.Head.Tip;
+        
+        if (headCommit == null)
+        {
+            return allFiles;
+        }
+
+        // Recursively enumerate all files in the tree
+        EnumerateTreeRecursive(headCommit.Tree, "", allFiles);
+        return allFiles;
+    }
 }
