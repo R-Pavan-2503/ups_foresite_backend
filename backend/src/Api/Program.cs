@@ -3,6 +3,7 @@ using CodeFamily.Api.Core.Models;
 using CodeFamily.Api.Core.Services;
 using CodeFamily.Api.Workers;
 using Microsoft.Extensions.Options;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -52,18 +53,36 @@ builder.Services.AddCors(options =>
 // Register HttpClient for services
 builder.Services.AddHttpClient();
 
+// Configure NpgsqlDataSource for better connection pooling
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new Exception("ConnectionStrings:DefaultConnection is required");
+
+var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+dataSourceBuilder.ConnectionStringBuilder.MinPoolSize = 5;
+dataSourceBuilder.ConnectionStringBuilder.MaxPoolSize = 50;
+dataSourceBuilder.ConnectionStringBuilder.Pooling = true;
+
+var dataSource = dataSourceBuilder.Build();
+builder.Services.AddSingleton(dataSource);
+
 // Register services
-builder.Services.AddSingleton<IDatabaseService, DatabaseService>();
+builder.Services.AddScoped<IDatabaseService, DatabaseService>();
 builder.Services.AddSingleton<IGitHubService, GitHubService>();
 builder.Services.AddSingleton<IGeminiService, GeminiService>();
 builder.Services.AddSingleton<ITreeSitterService, TreeSitterService>();
 builder.Services.AddSingleton<ISlackService, SlackService>();
 builder.Services.AddSingleton<IRepositoryService, RepositoryService>();
-builder.Services.AddSingleton<IAnalysisService, AnalysisService>();
+builder.Services.AddScoped<IAnalysisService, AnalysisService>();
 builder.Services.AddSingleton<IGroqService, GroqService>();
 
+// Notes System Services
+builder.Services.AddSingleton<ISupabaseStorageService, SupabaseStorageService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<INotesService, NotesService>();
+builder.Services.AddScoped<ILineCommentsService, LineCommentsService>();
+
 // Register background workers
-builder.Services.AddHostedService<IncrementalWorker>();
+// builder.Services.AddHostedService<IncrementalWorker>(); // Disabled: Not using webhooks
 
 // Add logging
 builder.Services.AddLogging(config =>

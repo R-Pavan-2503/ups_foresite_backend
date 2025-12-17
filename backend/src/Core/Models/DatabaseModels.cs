@@ -133,3 +133,115 @@ public class WebhookQueueItem
     public string Payload { get; set; } = string.Empty;
     public string Status { get; set; } = "pending";
 }
+
+// ============================================
+// NOTES SYSTEM MODELS
+// ============================================
+
+// File-Level Notes
+public class FileStickyNote
+{
+    public Guid Id { get; set; }
+    public Guid RepositoryId { get; set; }
+    public Guid FileId { get; set; }
+    public Guid CreatedByUserId { get; set; }
+    public string NoteType { get; set; } = "text"; // "text" or "document"
+    public string? Content { get; set; }
+    public string? DocumentUrl { get; set; }
+    public string? DocumentName { get; set; }
+    public long? DocumentSize { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class FileDiscussionThread
+{
+    public Guid Id { get; set; }
+    public Guid RepositoryId { get; set; }
+    public Guid FileId { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public class FileDiscussionMessage
+{
+    public Guid Id { get; set; }
+    public Guid ThreadId { get; set; }
+    public Guid UserId { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public Guid[]? MentionedUsers { get; set; }
+    public int[]? ReferencedLineNumbers { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class FilePersonalNote
+{
+    public Guid Id { get; set; }
+    public Guid FileId { get; set; }
+    public Guid UserId { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public int? LineNumber { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+// Repository-Level Notes
+public class RepoStickyNote
+{
+    public Guid Id { get; set; }
+    public Guid RepositoryId { get; set; }
+    public Guid CreatedByUserId { get; set; }
+    public string NoteType { get; set; } = "text"; // "text" or "document"
+    public string? Content { get; set; }
+    public string? DocumentUrl { get; set; }
+    public string? DocumentName { get; set; }
+    public long? DocumentSize { get; set; }
+    public Guid[]? TaggedFileIds { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class RepoDiscussionThread
+{
+    public Guid Id { get; set; }
+    public Guid RepositoryId { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public class RepoDiscussionMessage
+{
+    public Guid Id { get; set; }
+    public Guid ThreadId { get; set; }
+    public Guid UserId { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public Guid[]? MentionedUsers { get; set; }
+    public Guid[]? TaggedFileIds { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class RepoPersonalNote
+{
+    public Guid Id { get; set; }
+    public Guid RepositoryId { get; set; }
+    public Guid UserId { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public Guid[]? TaggedFileIds { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+// Notifications
+public class UserNotification
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public string NotificationType { get; set; } = "mention"; // "mention", "reply", "note_created"
+    public string Title { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string? LinkUrl { get; set; }
+    public Guid? RelatedFileId { get; set; }
+    public Guid? RelatedRepositoryId { get; set; }
+    public bool IsRead { get; set; }
+    public DateTime CreatedAt { get; set; }
+}

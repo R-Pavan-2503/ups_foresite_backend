@@ -13,25 +13,17 @@ namespace CodeFamily.Api.Core.Services;
 /// </summary>
 public class DatabaseService : IDatabaseService
 {
-    private readonly string _connectionString;
+    private readonly NpgsqlDataSource _dataSource;
 
-    public DatabaseService(IOptions<AppSettings> appSettings, IConfiguration configuration)
+    public DatabaseService(NpgsqlDataSource dataSource)
     {
-        // Use the direct PostgreSQL connection string from appsettings/settings.json
-        _connectionString = configuration.GetConnectionString("DefaultConnection")
-            ?? throw new Exception("ConnectionStrings:DefaultConnection is required in settings.json");
-    }
-
-    private NpgsqlConnection GetConnection()
-    {
-        return new NpgsqlConnection(_connectionString);
+        _dataSource = dataSource;
     }
 
     // Users
     public async Task<User?> GetUserByGitHubId(long githubId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("SELECT id, github_id, author_name, email, avatar_url FROM users WHERE github_id = @githubId", conn);
         cmd.Parameters.AddWithValue("githubId", githubId);
@@ -53,8 +45,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<User?> GetUserByEmail(string email)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("SELECT id, github_id, author_name, email, avatar_url FROM users WHERE email = @email", conn);
         cmd.Parameters.AddWithValue("email", email);
@@ -76,7 +67,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<User?> GetUserByAuthorName(string authorName)
     {
-        using var conn = GetConnection(); await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("SELECT id, github_id, author_name, email, avatar_url FROM users WHERE author_name = @authorName", conn);
         cmd.Parameters.AddWithValue("authorName", authorName);
@@ -98,8 +89,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<User> CreateUser(User user)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO users (github_id, author_name, email, avatar_url) VALUES (@githubId, @authorName, @email, @avatarUrl) RETURNING id",
@@ -116,8 +106,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<User?> GetUserById(Guid id)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("SELECT id, github_id, author_name, email, avatar_url FROM users WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("id", id);
@@ -139,8 +128,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task UpdateUserEmail(Guid userId, string email)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("UPDATE users SET email = @email WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("email", email);
@@ -151,8 +139,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task UpdateUserAuthorName(Guid userId, string authorName)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("UPDATE users SET author_name = @authorName WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("authorName", authorName);
@@ -163,8 +150,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task UpdateUserAvatar(Guid userId, string avatarUrl)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("UPDATE users SET avatar_url = @avatarUrl WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("avatarUrl", avatarUrl);
@@ -176,8 +162,7 @@ public class DatabaseService : IDatabaseService
     // Repositories
     public async Task<Repository?> GetRepositoryByName(string owner, string name)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, name, owner_username, status, is_active_blocking, connected_by_user_id, is_mine, last_analyzed_commit_sha, last_refresh_at FROM repositories WHERE owner_username = @owner AND name = @name",
@@ -207,8 +192,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<Repository> CreateRepository(Repository repository)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO repositories (name, owner_username, status, is_active_blocking, connected_by_user_id, is_mine) VALUES (@name, @owner, @status, @blocking, @userId, @isMine) RETURNING id",
@@ -227,8 +211,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task UpdateRepositoryStatus(Guid repositoryId, string status)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("UPDATE repositories SET status = @status WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("status", status);
@@ -240,8 +223,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task UpdateLastRefreshTime(Guid repositoryId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("UPDATE repositories SET last_refresh_at = @refreshTime WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("refreshTime", DateTime.UtcNow);
@@ -252,8 +234,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task UpdateLastAnalyzedCommit(Guid repositoryId, string commitSha)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("UPDATE repositories SET last_analyzed_commit_sha = @commitSha, last_refresh_at = @refreshTime WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("commitSha", commitSha);
@@ -265,8 +246,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<Repository>> GetUserRepositories(Guid userId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             @"SELECT r.id, r.name, r.owner_username, r.status, r.is_active_blocking, r.connected_by_user_id, r.is_mine, r.last_analyzed_commit_sha, r.last_refresh_at
@@ -299,8 +279,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<Repository?> GetRepositoryById(Guid id)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, name, owner_username, status, is_active_blocking, connected_by_user_id, is_mine, last_analyzed_commit_sha, last_refresh_at FROM repositories WHERE id = @id",
@@ -329,8 +308,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<Repository>> GetAnalyzedRepositories(Guid userId, string filter)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         string query;
         switch (filter.ToLower())
@@ -388,8 +366,7 @@ public class DatabaseService : IDatabaseService
     // Repository User Access
     public async Task<bool> HasRepositoryAccess(Guid userId, Guid repositoryId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT EXISTS(SELECT 1 FROM repository_user_access WHERE repository_id = @repoId AND user_id = @userId)",
@@ -404,8 +381,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task GrantRepositoryAccess(Guid userId, Guid repositoryId, Guid? grantedByUserId = null)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             @"INSERT INTO repository_user_access (repository_id, user_id, granted_at, granted_by_user_id)
@@ -422,8 +398,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<(string? userName, DateTime? analyzedAt)> GetRepositoryAnalyzer(Guid repositoryId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             @"SELECT u.author_name, r.created_at 
@@ -448,8 +423,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<Branch> CreateBranch(Branch branch)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO branches (repository_id, name, head_commit_sha, is_default, created_at, updated_at) VALUES (@repoId, @name, @headSha, @isDefault, @created, @updated) RETURNING id",
@@ -468,8 +442,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<Branch>> GetBranchesByRepository(Guid repositoryId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, repository_id, name, head_commit_sha, is_default, created_at, updated_at FROM branches WHERE repository_id = @repoId ORDER BY is_default DESC, name",
@@ -497,8 +470,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task DeleteBranch(Guid branchId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("DELETE FROM branches WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("id", branchId);
@@ -507,8 +479,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<Branch?> GetDefaultBranch(Guid repositoryId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, repository_id, name, head_commit_sha, is_default, created_at, updated_at FROM branches WHERE repository_id = @repoId AND is_default = TRUE LIMIT 1",
@@ -535,8 +506,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<Branch?> GetBranchByName(Guid repositoryId, string branchName)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, repository_id, name, head_commit_sha, is_default, created_at, updated_at FROM branches WHERE repository_id = @repoId AND name = @name",
@@ -564,8 +534,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task UpdateBranchHead(Guid branchId, string commitSha)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("UPDATE branches SET head_commit_sha = @headSha, updated_at = @updated WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("headSha", commitSha);
@@ -578,8 +547,7 @@ public class DatabaseService : IDatabaseService
     // Commit-Branch Junction
     public async Task LinkCommitToBranch(Guid commitId, Guid branchId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO commit_branches (commit_id, branch_id, created_at) VALUES (@commitId, @branchId, @created) ON CONFLICT (commit_id, branch_id) DO NOTHING",
@@ -594,8 +562,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<Guid>> GetBranchIdsForCommit(Guid commitId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT branch_id FROM commit_branches WHERE commit_id = @commitId",
@@ -615,8 +582,7 @@ public class DatabaseService : IDatabaseService
     // Commits
     public async Task<Commit> CreateCommit(Commit commit)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO commits (repository_id, sha, message, author_name, author_email, author_user_id, committed_at) VALUES (@repoId, @sha, @message, @authorName, @authorEmail, @authorUserId, @committedAt) RETURNING id",
@@ -636,8 +602,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<Commit>> GetCommitsByRepository(Guid repositoryId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, repository_id, sha, message, author_name, author_email, committed_at FROM commits WHERE repository_id = @repoId ORDER BY committed_at DESC",
@@ -665,8 +630,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<Commit>> GetCommitsByBranch(Guid repositoryId, string branchName)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             @"SELECT DISTINCT c.id, c.repository_id, c.sha, c.message, c.author_name, c.author_email, c.committed_at 
@@ -700,8 +664,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<Commit?> GetCommitById(Guid id)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, repository_id, sha, message, author_name, author_email, committed_at FROM commits WHERE id = @id",
@@ -728,8 +691,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<Commit?> GetCommitBySha(Guid repositoryId, string sha)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, repository_id, sha, message, author_name, author_email, committed_at FROM commits WHERE repository_id = @repoId AND sha = @sha",
@@ -758,8 +720,7 @@ public class DatabaseService : IDatabaseService
     // Files
     public async Task<RepositoryFile?> GetFileByPath(Guid repositoryId, string filePath)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, repository_id, file_path, total_lines FROM repository_files WHERE repository_id = @repoId AND file_path = @path",
@@ -784,8 +745,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<RepositoryFile> CreateFile(RepositoryFile file)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO repository_files (repository_id, file_path, total_lines) VALUES (@repoId, @path, @lines) RETURNING id",
@@ -801,8 +761,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<RepositoryFile>> GetFilesByRepository(Guid repositoryId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, repository_id, file_path, total_lines FROM repository_files WHERE repository_id = @repoId ORDER BY file_path",
@@ -827,8 +786,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<RepositoryFile>> GetFilesByBranch(Guid repositoryId, string branchName)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         // Return ALL files in the repository
         // Note: Files exist at the repository level, not per-branch.
@@ -860,8 +818,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<RepositoryFile?> GetFileById(Guid fileId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, repository_id, file_path, total_lines FROM repository_files WHERE id = @id",
@@ -886,8 +843,7 @@ public class DatabaseService : IDatabaseService
     // File Changes
     public async Task CreateFileChange(FileChange fileChange)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO file_changes (commit_id, file_id, additions, deletions) VALUES (@commitId, @fileId, @additions, @deletions) ON CONFLICT (commit_id, file_id) DO UPDATE SET additions = @additions, deletions = @deletions",
@@ -903,8 +859,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<FileChange>> GetFileChangesByCommit(Guid commitId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT commit_id, file_id, additions, deletions FROM file_changes WHERE commit_id = @commitId",
@@ -929,8 +884,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<FileChange>> GetFileChangesByFile(Guid fileId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT commit_id, file_id, additions, deletions FROM file_changes WHERE file_id = @fileId",
@@ -956,8 +910,7 @@ public class DatabaseService : IDatabaseService
     // Embeddings
     public async Task<CodeEmbedding> CreateEmbedding(CodeEmbedding embedding)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO code_embeddings (file_id, embedding, chunk_content, created_at) VALUES (@fileId, @embedding::vector, @content, @createdAt) RETURNING id",
@@ -974,8 +927,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<CodeEmbedding>> GetEmbeddingsByFile(Guid fileId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, file_id, embedding::text, chunk_content, created_at FROM code_embeddings WHERE file_id = @fileId",
@@ -1004,8 +956,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<(RepositoryFile File, double Similarity)>> FindSimilarFiles(float[] embedding, Guid repositoryId, Guid excludeFileId, int limit = 10)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         // Use pgvector cosine similarity search
         var embeddingStr = $"[{string.Join(",", embedding)}]";
@@ -1046,8 +997,7 @@ public class DatabaseService : IDatabaseService
     // Dependencies
     public async Task CreateDependency(Dependency dependency)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO dependencies (source_file_id, target_file_id, dependency_type, strength) VALUES (@sourceId, @targetId, @type, @strength) ON CONFLICT (source_file_id, target_file_id) DO UPDATE SET dependency_type = @type, strength = @strength",
@@ -1063,8 +1013,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<Dependency>> GetDependenciesForFile(Guid fileId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT source_file_id, target_file_id, dependency_type, strength FROM dependencies WHERE source_file_id = @fileId",
@@ -1089,8 +1038,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<Dependency>> GetDependentsForFile(Guid fileId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT source_file_id, target_file_id, dependency_type, strength FROM dependencies WHERE target_file_id = @fileId",
@@ -1116,8 +1064,7 @@ public class DatabaseService : IDatabaseService
     // File Ownership
     public async Task UpsertFileOwnership(FileOwnership ownership)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO file_ownership (file_id, author_name, semantic_score, last_updated) VALUES (@fileId, @authorName, @score, @updated) ON CONFLICT (file_id, author_name) DO UPDATE SET semantic_score = @score, last_updated = @updated",
@@ -1133,8 +1080,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<FileOwnership>> GetFileOwnership(Guid fileId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT file_id, author_name, semantic_score, last_updated FROM file_ownership WHERE file_id = @fileId ORDER BY semantic_score DESC LIMIT 3",
@@ -1159,8 +1105,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<string?> GetMostActiveAuthorForFile(Guid fileId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             @"SELECT c.author_name, COUNT(*) as change_count
@@ -1185,8 +1130,7 @@ public class DatabaseService : IDatabaseService
     // Pull Requests
     public async Task<PullRequest?> GetPullRequestByNumber(Guid repositoryId, int prNumber)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, repository_id, pr_number, title, state, author_id FROM pull_requests WHERE repository_id = @repoId AND pr_number = @prNumber",
@@ -1213,8 +1157,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<PullRequest> CreatePullRequest(PullRequest pr)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO pull_requests (repository_id, pr_number, title, state, author_id) VALUES (@repoId, @prNumber, @title, @state, @authorId) RETURNING id",
@@ -1232,8 +1175,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<PullRequest>> GetOpenPullRequests(Guid repositoryId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, repository_id, pr_number, state, author_id FROM pull_requests WHERE repository_id = @repoId AND state = 'open'",
@@ -1259,8 +1201,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<PullRequest>> GetAllPullRequests(Guid repositoryId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT id, repository_id, pr_number, title, state, author_id FROM pull_requests WHERE repository_id = @repoId ORDER BY pr_number DESC",
@@ -1287,8 +1228,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task UpdatePullRequestState(Guid prId, string state)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("UPDATE pull_requests SET state = @state WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("state", state);
@@ -1299,8 +1239,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task UpdatePullRequestTitle(Guid prId, string title)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("UPDATE pull_requests SET title = @title WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("title", (object?)title ?? DBNull.Value);
@@ -1311,8 +1250,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task DeletePrFilesChangedByPrId(Guid prId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("DELETE FROM pr_files_changed WHERE pr_id = @prId", conn);
         cmd.Parameters.AddWithValue("prId", prId);
@@ -1323,8 +1261,7 @@ public class DatabaseService : IDatabaseService
     // PR Files
     public async Task CreatePrFileChanged(PrFileChanged prFile)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO pr_files_changed (pr_id, file_id) VALUES (@prId, @fileId) ON CONFLICT (pr_id, file_id) DO NOTHING",
@@ -1338,8 +1275,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<RepositoryFile>> GetPrFiles(Guid prId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "SELECT rf.id, rf.repository_id, rf.file_path, rf.total_lines FROM repository_files rf JOIN pr_files_changed pfc ON rf.id = pfc.file_id WHERE pfc.pr_id = @prId",
@@ -1364,8 +1300,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<PrConflict>> GetPotentialConflicts(Guid prId, Guid repositoryId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         // Step 1: Get all files in the current PR
         var currentPrFiles = new List<Guid>();
@@ -1436,8 +1371,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<bool> IsFileInOpenPr(Guid fileId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(@"
             SELECT 1 
@@ -1456,8 +1390,7 @@ public class DatabaseService : IDatabaseService
     // Webhook Queue
     public async Task<long> EnqueueWebhook(string payload)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "INSERT INTO webhook_queue (payload, status) VALUES (@payload::jsonb, 'pending') RETURNING id",
@@ -1470,8 +1403,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<WebhookQueueItem?> GetNextPendingWebhook()
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             "UPDATE webhook_queue SET status = 'processing' WHERE id = (SELECT id FROM webhook_queue WHERE status = 'pending' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id, payload, status",
@@ -1492,8 +1424,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task UpdateWebhookStatus(long id, string status)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand("UPDATE webhook_queue SET status = @status WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("status", status);
@@ -1504,8 +1435,7 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<Commit>> GetCommitsForFile(Guid fileId)
     {
-        using var conn = GetConnection();
-        await conn.OpenAsync();
+        await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
             @"SELECT c.id, c.repository_id, c.sha, c.message, c.author_name, c.author_email, c.committed_at 
@@ -1535,3 +1465,4 @@ public class DatabaseService : IDatabaseService
         return commits;
     }
 }
+

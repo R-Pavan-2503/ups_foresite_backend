@@ -181,6 +181,7 @@ public class FilesController : ControllerBase
         return Ok(new
         {
             id = file.Id,
+            repositoryId = file.RepositoryId,
             filePath = file.FilePath,
             totalLines = file.TotalLines,
             purpose = "Semantic summary will be generated from embeddings", // TODO: Generate from embeddings
