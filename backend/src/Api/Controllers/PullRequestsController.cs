@@ -56,6 +56,33 @@ public class PullRequestsController : ControllerBase
             // Get files changed
             var files = await _github.GetPullRequestFiles(owner, repo, prNumber, accessToken);
 
+            // Get PR comments (issue comments) and reviews
+            var issueComments = await _github.GetPullRequestComments(owner, repo, prNumber, accessToken);
+            var reviews = await _github.GetPullRequestReviews(owner, repo, prNumber, accessToken);
+
+            // Combine issue comments with review comments that have a body
+            var allComments = issueComments
+                .Select(c => new
+                {
+                    Id = c.Id,
+                    Author = new { Login = c.User.Login, AvatarUrl = c.User.AvatarUrl },
+                    Body = c.Body,
+                    CreatedAt = c.CreatedAt,
+                    Type = "comment"
+                })
+                .Concat(reviews
+                    .Where(r => !string.IsNullOrWhiteSpace(r.Body))
+                    .Select(r => new
+                    {
+                        Id = r.Id,
+                        Author = new { Login = r.User.Login, AvatarUrl = r.User.AvatarUrl },
+                        Body = r.Body,
+                        CreatedAt = r.SubmittedAt,
+                        Type = "review"
+                    }))
+                .OrderBy(c => c.CreatedAt)
+                .ToList();
+
             // ✨ NEW: Get repository from database to access file ownership and conflicts
             var repository = await _db.GetRepositoryByName(owner, repo);
             List<object>? recommendedReviewers = null;
@@ -146,7 +173,9 @@ public class PullRequestsController : ControllerBase
                 }),
                 // ✨ NEW FIELDS
                 RecommendedReviewers = recommendedReviewers ?? new List<object>(),
-                PotentialConflicts = potentialConflicts ?? new List<PrConflict>()
+                PotentialConflicts = potentialConflicts ?? new List<PrConflict>(),
+                // ✨ PR Comments (issue comments + review comments)
+                Comments = allComments
             });
         }
         catch (Exception ex)
