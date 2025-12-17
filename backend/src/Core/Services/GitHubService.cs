@@ -308,6 +308,32 @@ public class GitHubService : IGitHubService
         }
     }
 
+    public async Task<IReadOnlyList<PullRequestReview>> GetPullRequestReviews(string owner, string repo, int prNumber, string? accessToken = null)
+    {
+        if (!string.IsNullOrEmpty(accessToken))
+        {
+            var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+            {
+                Credentials = new Credentials(accessToken)
+            };
+            return await client.PullRequest.Review.GetAll(owner, repo, prNumber);
+        }
+
+        try
+        {
+            return await _client.PullRequest.Review.GetAll(owner, repo, prNumber);
+        }
+        catch (Exception)
+        {
+            var installationToken = await GetInstallationTokenForRepo(owner, repo);
+            var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+            {
+                Credentials = new Credentials(installationToken)
+            };
+            return await client.PullRequest.Review.GetAll(owner, repo, prNumber);
+        }
+    }
+
     // Webhooks
     public async Task<RepositoryHook> CreateWebhook(string owner, string repo, string webhookUrl, string secret)
     {

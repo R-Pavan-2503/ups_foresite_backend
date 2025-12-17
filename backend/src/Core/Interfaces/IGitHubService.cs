@@ -26,6 +26,7 @@ public interface IGitHubService
     Task<Octokit.PullRequest> GetPullRequest(string owner, string repo, int number, string? accessToken = null);
     Task<IReadOnlyList<PullRequestFile>> GetPullRequestFiles(string owner, string repo, int number, string? accessToken = null);
     Task<IReadOnlyList<IssueComment>> GetPullRequestComments(string owner, string repo, int prNumber, string? accessToken = null);
+    Task<IReadOnlyList<PullRequestReview>> GetPullRequestReviews(string owner, string repo, int prNumber, string? accessToken = null);
 
     // Webhooks
     Task<RepositoryHook> CreateWebhook(string owner, string repo, string webhookUrl, string secret);
