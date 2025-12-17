@@ -56,8 +56,11 @@ public class PullRequestsController : ControllerBase
             // Get files changed
             var files = await _github.GetPullRequestFiles(owner, repo, prNumber, accessToken);
 
-            // ✨ NEW: Get PR comments from GitHub
+            // Get PR comments from GitHub
             var comments = await _github.GetPullRequestComments(owner, repo, prNumber, accessToken);
+
+            // Get PR reviews from GitHub (includes review comments)
+            var reviews = await _github.GetPullRequestReviews(owner, repo, prNumber, accessToken);
 
             // ✨ NEW: Get repository from database to access file ownership and conflicts
             var repository = await _db.GetRepositoryByName(owner, repo);
@@ -150,12 +153,13 @@ public class PullRequestsController : ControllerBase
                 // ✨ NEW FIELDS
                 RecommendedReviewers = recommendedReviewers ?? new List<object>(),
                 PotentialConflicts = potentialConflicts ?? new List<PrConflict>(),
-                // ✨ GitHub PR Reviewers and Comments
+                // GitHub assigned reviewers (from PR object)
                 RequestedReviewers = pr.RequestedReviewers?.Select(r => new
                 {
                     Login = r.Login,
                     AvatarUrl = r.AvatarUrl
                 }) ?? Enumerable.Empty<object>(),
+                // PR Comments
                 Comments = comments.Select(c => new
                 {
                     Id = c.Id,
@@ -166,6 +170,19 @@ public class PullRequestsController : ControllerBase
                     },
                     Body = c.Body,
                     CreatedAt = c.CreatedAt
+                }),
+                // PR Reviews (review comments with approval state)
+                Reviews = reviews.Where(r => !string.IsNullOrEmpty(r.Body)).Select(r => new
+                {
+                    Id = r.Id,
+                    Author = new
+                    {
+                        Login = r.User.Login,
+                        AvatarUrl = r.User.AvatarUrl
+                    },
+                    Body = r.Body,
+                    State = r.State.StringValue,
+                    SubmittedAt = r.SubmittedAt
                 })
             });
         }
