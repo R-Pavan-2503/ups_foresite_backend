@@ -56,6 +56,9 @@ public class PullRequestsController : ControllerBase
             // Get files changed
             var files = await _github.GetPullRequestFiles(owner, repo, prNumber, accessToken);
 
+            // ✨ NEW: Get PR comments from GitHub
+            var comments = await _github.GetPullRequestComments(owner, repo, prNumber, accessToken);
+
             // ✨ NEW: Get repository from database to access file ownership and conflicts
             var repository = await _db.GetRepositoryByName(owner, repo);
             List<object>? recommendedReviewers = null;
@@ -146,7 +149,24 @@ public class PullRequestsController : ControllerBase
                 }),
                 // ✨ NEW FIELDS
                 RecommendedReviewers = recommendedReviewers ?? new List<object>(),
-                PotentialConflicts = potentialConflicts ?? new List<PrConflict>()
+                PotentialConflicts = potentialConflicts ?? new List<PrConflict>(),
+                // ✨ GitHub PR Reviewers and Comments
+                RequestedReviewers = pr.RequestedReviewers?.Select(r => new
+                {
+                    Login = r.Login,
+                    AvatarUrl = r.AvatarUrl
+                }) ?? Enumerable.Empty<object>(),
+                Comments = comments.Select(c => new
+                {
+                    Id = c.Id,
+                    Author = new
+                    {
+                        Login = c.User.Login,
+                        AvatarUrl = c.User.AvatarUrl
+                    },
+                    Body = c.Body,
+                    CreatedAt = c.CreatedAt
+                })
             });
         }
         catch (Exception ex)
