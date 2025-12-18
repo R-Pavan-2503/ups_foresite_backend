@@ -32,7 +32,17 @@ public class TreeSitterService : ITreeSitterService
         try
         {
             var response = await _client.PostAsync(url, content);
-            response.EnsureSuccessStatusCode();
+            
+            // Check if response is successful
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"⚠️ Sidecar parsing failed (HTTP {response.StatusCode}):");
+                Console.WriteLine($"   Language: {language}");
+                Console.WriteLine($"   Code length: {code.Length} chars");
+                Console.WriteLine($"   Error: {errorBody}");
+                return new ParseResult(); // Return empty on parse failure
+            }
 
             var responseBody = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<ParseResult>(responseBody, new JsonSerializerOptions
@@ -44,8 +54,13 @@ public class TreeSitterService : ITreeSitterService
         }
         catch (HttpRequestException ex)
         {
-            Console.WriteLine($"Error calling sidecar: {ex.Message}");
+            Console.WriteLine($"❌ Error calling sidecar: {ex.Message}");
             return new ParseResult(); // Return empty if sidecar is down
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Unexpected error in TreeSitterService: {ex.Message}");
+            return new ParseResult();
         }
     }
 }

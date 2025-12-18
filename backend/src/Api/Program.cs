@@ -38,6 +38,14 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Add MiniProfiler for performance monitoring
+builder.Services.AddMiniProfiler(options =>
+{
+    options.RouteBasePath = "/profiler"; // URL to access profiler
+    options.ColorScheme = StackExchange.Profiling.ColorScheme.Auto;
+    options.EnableDebugMode = true; // Show more details in dev
+});
+
 // Add CORS
 builder.Services.AddCors(options =>
 {
@@ -98,6 +106,9 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    
+    // Enable MiniProfiler (dev only)
+    app.UseMiniProfiler();
 }
 
 app.UseCors();
