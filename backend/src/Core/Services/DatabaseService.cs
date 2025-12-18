@@ -87,6 +87,36 @@ public class DatabaseService : IDatabaseService
         return null;
     }
 
+    // BATCH: Get multiple users at once by author names
+    public async Task<List<User>> GetUsersByAuthorNames(List<string> authorNames)
+    {
+        if (authorNames == null || !authorNames.Any()) return new List<User>();
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, github_id, author_name, email, avatar_url FROM users WHERE author_name = ANY(@names)",
+            conn);
+
+        cmd.Parameters.AddWithValue("names", authorNames.ToArray());
+
+        var users = new List<User>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            users.Add(new User
+            {
+                Id = reader.GetGuid(0),
+                GithubId = reader.GetInt64(1),
+                AuthorName = reader.GetString(2),
+                Email = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AvatarUrl = reader.IsDBNull(4) ? null : reader.GetString(4)
+            });
+        }
+        return users;
+    }
+
+
     public async Task<User> CreateUser(User user)
     {
         await using var conn = await _dataSource.OpenConnectionAsync();
@@ -717,6 +747,37 @@ public class DatabaseService : IDatabaseService
         return null;
     }
 
+    // BATCH: Get multiple commits at once
+    public async Task<List<Commit>> GetCommitsByIds(List<Guid> commitIds)
+    {
+        if (commitIds == null || !commitIds.Any()) return new List<Commit>();
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, sha, message, author_name, author_email, committed_at FROM commits WHERE id = ANY(@ids)",
+            conn);
+
+        cmd.Parameters.AddWithValue("ids", commitIds.ToArray());
+
+        var commits = new List<Commit>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            commits.Add(new Commit
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                Sha = reader.GetString(2),
+                Message = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AuthorName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                AuthorEmail = reader.IsDBNull(5) ? null : reader.GetString(5),
+                CommittedAt = reader.GetDateTime(6)
+            });
+        }
+        return commits;
+    }
+
     // Files
     public async Task<RepositoryFile?> GetFileByPath(Guid repositoryId, string filePath)
     {
@@ -839,6 +900,35 @@ public class DatabaseService : IDatabaseService
         }
         return null;
     }
+
+    // BATCH: Get multiple files at once
+    public async Task<List<RepositoryFile>> GetFilesByIds(List<Guid> fileIds)
+    {
+        if (fileIds == null || !fileIds.Any()) return new List<RepositoryFile>();
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, repository_id, file_path, total_lines FROM repository_files WHERE id = ANY(@ids)",
+            conn);
+
+        cmd.Parameters.AddWithValue("ids", fileIds.ToArray());
+
+        var files = new List<RepositoryFile>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            files.Add(new RepositoryFile
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                FilePath = reader.GetString(2),
+                TotalLines = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            });
+        }
+        return files;
+    }
+
 
     // File Changes
     public async Task CreateFileChange(FileChange fileChange)
@@ -1463,6 +1553,105 @@ public class DatabaseService : IDatabaseService
             });
         }
         return commits;
+    }
+
+    // BATCH: Get file changes for multiple files at once
+    public async Task<Dictionary<Guid, List<FileChange>>> GetFileChangesByFileIds(List<Guid> fileIds)
+    {
+        if (fileIds == null || !fileIds.Any()) return new Dictionary<Guid, List<FileChange>>();
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT commit_id, file_id, additions, deletions FROM file_changes WHERE file_id = ANY(@fileIds)",
+            conn);
+
+        cmd.Parameters.AddWithValue("fileIds", fileIds.ToArray());
+
+        var result = new Dictionary<Guid, List<FileChange>>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var fileId = reader.GetGuid(1);
+            var change = new FileChange
+            {
+                CommitId = reader.GetGuid(0),
+                FileId = fileId,
+                Additions = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                Deletions = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            };
+
+            if (!result.ContainsKey(fileId))
+                result[fileId] = new List<FileChange>();
+            result[fileId].Add(change);
+        }
+        return result;
+    }
+
+    // BATCH: Get file changes for multiple commits at once
+    public async Task<Dictionary<Guid, List<FileChange>>> GetFileChangesByCommitIds(List<Guid> commitIds)
+    {
+        if (commitIds == null || !commitIds.Any()) return new Dictionary<Guid, List<FileChange>>();
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT commit_id, file_id, additions, deletions FROM file_changes WHERE commit_id = ANY(@commitIds)",
+            conn);
+
+        cmd.Parameters.AddWithValue("commitIds", commitIds.ToArray());
+
+        var result = new Dictionary<Guid, List<FileChange>>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var commitId = reader.GetGuid(0);
+            var change = new FileChange
+            {
+                CommitId = commitId,
+                FileId = reader.GetGuid(1),
+                Additions = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                Deletions = reader.IsDBNull(3) ? null : reader.GetInt32(3)
+            };
+
+            if (!result.ContainsKey(commitId))
+                result[commitId] = new List<FileChange>();
+            result[commitId].Add(change);
+        }
+        return result;
+    }
+
+    // BATCH: Get file ownership for multiple files at once
+    public async Task<Dictionary<Guid, List<FileOwnership>>> GetFileOwnershipByFileIds(List<Guid> fileIds)
+    {
+        if (fileIds == null || !fileIds.Any()) return new Dictionary<Guid, List<FileOwnership>>();
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT file_id, author_name, semantic_score, last_updated FROM file_ownership WHERE file_id = ANY(@fileIds)",
+            conn);
+
+        cmd.Parameters.AddWithValue("fileIds", fileIds.ToArray());
+
+        var result = new Dictionary<Guid, List<FileOwnership>>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var fileId = reader.GetGuid(0);
+            var ownership = new FileOwnership
+            {
+                FileId = fileId,
+                AuthorName = reader.GetString(1),
+                SemanticScore = reader.IsDBNull(2) ? null : reader.GetDecimal(2),
+                LastUpdated = reader.GetDateTime(3)
+            };
+
+            if (!result.ContainsKey(fileId))
+                result[fileId] = new List<FileOwnership>();
+            result[fileId].Add(ownership);
+        }
+        return result;
     }
 }
 

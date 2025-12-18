@@ -13,6 +13,7 @@ public interface IDatabaseService
     Task UpdateUserEmail(Guid userId, string email);
     Task UpdateUserAuthorName(Guid userId, string authorName);
     Task UpdateUserAvatar(Guid userId, string avatarUrl);
+    Task<List<User>> GetUsersByAuthorNames(List<string> authorNames); // BATCH: Get multiple users at once
 
     // Repositories
     Task<Repository?> GetRepositoryByName(string owner, string name);
@@ -47,6 +48,7 @@ public interface IDatabaseService
     Task<List<Commit>> GetCommitsByBranch(Guid repositoryId, string branchName);
     Task<Commit?> GetCommitById(Guid id);
     Task<Commit?> GetCommitBySha(Guid repositoryId, string sha);
+    Task<List<Commit>> GetCommitsByIds(List<Guid> commitIds); // BATCH: Get multiple commits at once
 
     // Files
     Task<RepositoryFile?> GetFileByPath(Guid repositoryId, string filePath);
@@ -54,12 +56,15 @@ public interface IDatabaseService
     Task<List<RepositoryFile>> GetFilesByRepository(Guid repositoryId);
     Task<List<RepositoryFile>> GetFilesByBranch(Guid repositoryId, string branchName);
     Task<RepositoryFile?> GetFileById(Guid fileId);
+    Task<List<RepositoryFile>> GetFilesByIds(List<Guid> fileIds); // BATCH: Get multiple files at once
 
     // File Changes
     Task CreateFileChange(FileChange fileChange);
     Task<List<FileChange>> GetFileChangesByCommit(Guid commitId);
     Task<List<FileChange>> GetFileChangesByFile(Guid fileId);
     Task<List<Commit>> GetCommitsForFile(Guid fileId);
+    Task<Dictionary<Guid, List<FileChange>>> GetFileChangesByFileIds(List<Guid> fileIds); // BATCH: Get changes for multiple files
+    Task<Dictionary<Guid, List<FileChange>>> GetFileChangesByCommitIds(List<Guid> commitIds); // BATCH: Get changes for multiple commits
 
     // Embeddings
     Task<CodeEmbedding> CreateEmbedding(CodeEmbedding embedding);
@@ -75,6 +80,7 @@ public interface IDatabaseService
     Task UpsertFileOwnership(FileOwnership ownership);
     Task<List<FileOwnership>> GetFileOwnership(Guid fileId);
     Task<string?> GetMostActiveAuthorForFile(Guid fileId);
+    Task<Dictionary<Guid, List<FileOwnership>>> GetFileOwnershipByFileIds(List<Guid> fileIds); // BATCH: Get ownership for multiple files
 
     // Pull Requests
     Task<PullRequest?> GetPullRequestByNumber(Guid repositoryId, int prNumber);

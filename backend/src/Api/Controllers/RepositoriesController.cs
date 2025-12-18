@@ -465,20 +465,20 @@ public class RepositoriesController : ControllerBase
                 files = await _db.GetFilesByRepository(repositoryId);
             }
 
-            // Get file changes to calculate hotspots
-            var fileChangeCounts = new Dictionary<Guid, int>();
-            foreach (var file in files)
-            {
-                var changes = await _db.GetFileChangesByFile(file.Id);
-                fileChangeCounts[file.Id] = changes.Count;
-            }
+            // OPTIMIZED: Get file changes for all files in batch
+            var fileIds = files.Select(f => f.Id).ToList();
+            var fileChangesDict = await _db.GetFileChangesByFileIds(fileIds);
+            var fileChangeCounts = fileChangesDict.ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value.Count
+            );
 
-            // Calculate contributors from file ownership
+            // OPTIMIZED: Calculate contributors from file ownership in batch
+            var ownershipDict = await _db.GetFileOwnershipByFileIds(fileIds);
             var uniqueAuthors = new HashSet<string>();
-            foreach (var file in files)
+            foreach (var ownershipList in ownershipDict.Values)
             {
-                var ownership = await _db.GetFileOwnership(file.Id);
-                foreach (var owner in ownership)
+                foreach (var owner in ownershipList)
                 {
                     uniqueAuthors.Add(owner.AuthorName);
                 }
@@ -643,13 +643,22 @@ public class RepositoriesController : ControllerBase
                 .Where(c => !string.IsNullOrEmpty(c.AuthorName))
                 .GroupBy(c => c.AuthorName);
 
+            // OPTIMIZED: Get all users in batch
+            var allAuthorNames = commitsByAuthor.Select(g => g.Key!).Distinct().ToList();
+            var allUsers = await _db.GetUsersByAuthorNames(allAuthorNames);
+            var usersDict = allUsers.ToDictionary(u => u.AuthorName);
+
+            // OPTIMIZED: Get all file changes for all commits in batch
+            var allCommitIds = commits.Select(c => c.Id).ToList();
+            var allFileChanges = await _db.GetFileChangesByCommitIds(allCommitIds);
+
             foreach (var group in commitsByAuthor)
             {
                 var authorName = group.Key!;
                 var authorCommits = group.ToList();
 
-                // Try to get real email from users table
-                var user = await _db.GetUserByAuthorName(authorName);
+                // Try to get real email from users dictionary
+                usersDict.TryGetValue(authorName, out var user);
                 var authorEmail = user?.Email ?? authorCommits.First().AuthorEmail ?? authorName;
 
                 var totalAdditions = 0;
@@ -662,12 +671,15 @@ public class RepositoriesController : ControllerBase
                     if (lastCommit == null || commit.CommittedAt > lastCommit)
                         lastCommit = commit.CommittedAt;
 
-                    var changes = await _db.GetFileChangesByCommit(commit.Id);
-                    foreach (var change in changes)
+                    // Get changes from batch dictionary
+                    if (allFileChanges.TryGetValue(commit.Id, out var changes))
                     {
-                        totalAdditions += change.Additions ?? 0;
-                        totalDeletions += change.Deletions ?? 0;
-                        filesChanged.Add(change.FileId);
+                        foreach (var change in changes)
+                        {
+                            totalAdditions += change.Additions ?? 0;
+                            totalDeletions += change.Deletions ?? 0;
+                            filesChanged.Add(change.FileId);
+                        }
                     }
                 }
 
@@ -694,14 +706,18 @@ public class RepositoriesController : ControllerBase
                 return string.IsNullOrEmpty(ext) ? "other" : ext.TrimStart('.');
             }).Take(5);
 
+            // OPTIMIZED: Get ownership for all files in batch
+            var allFileIds = files.Select(f => f.Id).ToList();
+            var fileOwnershipDict = await _db.GetFileOwnershipByFileIds(allFileIds);
+
             foreach (var typeGroup in fileTypeGroups)
             {
                 var ownershipByType = new Dictionary<string, int>();
 
                 foreach (var file in typeGroup)
                 {
-                    var ownership = await _db.GetFileOwnership(file.Id);
-                    if (ownership.Any())
+                    // Get ownership from batch dictionary
+                    if (fileOwnershipDict.TryGetValue(file.Id, out var ownership) && ownership.Any())
                     {
                         var topOwner = ownership.OrderByDescending(o => o.SemanticScore).First();
                         var ownerName = topOwner.AuthorName;
@@ -777,97 +793,71 @@ public class RepositoriesController : ControllerBase
             var totalAdditions = fileChanges.Sum(fc => fc.Additions ?? 0);
             var totalDeletions = fileChanges.Sum(fc => fc.Deletions ?? 0);
 
-            // Get dependencies
+            // OPTIMIZED: Get dependencies - batch file lookups
             var dependencies = await _db.GetDependenciesForFile(fileId);
             var dependencyList = new List<object>();
             var directDependencyIds = new HashSet<Guid>();
 
-            foreach (var dep in dependencies)
+            if (dependencies.Any())
             {
-                directDependencyIds.Add(dep.TargetFileId);
-                var targetFile = await _db.GetFileById(dep.TargetFileId);
-                if (targetFile != null)
-                {
-                    // Calculate semantic similarity score
-                    var semanticScore = await CalculateSemanticSimilarity(currentFileEmbedding, dep.TargetFileId);
+                var depFileIds = dependencies.Select(d => d.TargetFileId).ToList();
+                var depFiles = await _db.GetFilesByIds(depFileIds);
+                var depFilesDict = depFiles.ToDictionary(f => f.Id);
 
-                    dependencyList.Add(new
+                foreach (var dep in dependencies)
+                {
+                    directDependencyIds.Add(dep.TargetFileId);
+                    if (depFilesDict.TryGetValue(dep.TargetFileId, out var targetFile))
                     {
-                        TargetFileId = dep.TargetFileId,
-                        TargetPath = targetFile.FilePath,
-                        DependencyType = dep.DependencyType ?? "import",
-                        Score = semanticScore ?? (dep.Strength ?? 1) // Use semantic score, fallback to strength
-                    });
+                        // Calculate semantic similarity score
+                        var semanticScore = await CalculateSemanticSimilarity(currentFileEmbedding, dep.TargetFileId);
+
+                        dependencyList.Add(new
+                        {
+                            TargetFileId = dep.TargetFileId,
+                            TargetPath = targetFile.FilePath,
+                            DependencyType = dep.DependencyType ?? "import",
+                            Score = semanticScore ?? (dep.Strength ?? 1) // Use semantic score, fallback to strength
+                        });
+                    }
                 }
             }
 
-            // Get indirect dependencies (recursive) with semantic scores
-            // Only include files with semantic score > 0.7 (highly similar)
-            var allDependencies = await GetAllDependenciesRecursive(fileId, new HashSet<Guid>());
-            var indirectDependencyList = new List<object>();
+            // REMOVED: IndirectDependencies calculation (was causing 100+ DB calls)
+            // Use SemanticNeighbors instead for similar files (much faster)
 
-            foreach (var d in allDependencies.Where(d => !directDependencyIds.Contains(d.FileId)).DistinctBy(d => d.FileId))
-            {
-                var semanticScore = await CalculateSemanticSimilarity(currentFileEmbedding, d.FileId);
-
-                // Only add if semantic score > 0.7 (highly similar files)
-                if (semanticScore.HasValue && semanticScore.Value > 0.7)
-                {
-                    indirectDependencyList.Add(new
-                    {
-                        TargetFileId = d.FileId,
-                        TargetPath = d.FilePath,
-                        DependencyType = "indirect",
-                        Score = semanticScore.Value
-                    });
-                }
-            }
-
-            // Get dependents (files that depend on this file)
+            // OPTIMIZED: Get dependents - batch file lookups
             var dependents = await _db.GetDependentsForFile(fileId);
             var dependentList = new List<object>();
             var directDependentIds = new HashSet<Guid>();
 
-            foreach (var dep in dependents)
+            if (dependents.Any())
             {
-                directDependentIds.Add(dep.SourceFileId);
-                var sourceFile = await _db.GetFileById(dep.SourceFileId);
-                if (sourceFile != null)
-                {
-                    // Calculate semantic similarity score
-                    var semanticScore = await CalculateSemanticSimilarity(currentFileEmbedding, dep.SourceFileId);
+                var depFileIds = dependents.Select(d => d.SourceFileId).ToList();
+                var depFiles = await _db.GetFilesByIds(depFileIds);
+                var depFilesDict = depFiles.ToDictionary(f => f.Id);
 
-                    dependentList.Add(new
+                foreach (var dep in dependents)
+                {
+                    directDependentIds.Add(dep.SourceFileId);
+                    if (depFilesDict.TryGetValue(dep.SourceFileId, out var sourceFile))
                     {
-                        SourceFileId = dep.SourceFileId,
-                        SourcePath = sourceFile.FilePath,
-                        DependencyType = dep.DependencyType ?? "import",
-                        Score = semanticScore ?? (dep.Strength ?? 1) // Use semantic score, fallback to strength
-                    });
+                        // Calculate semantic similarity score
+                        var semanticScore = await CalculateSemanticSimilarity(currentFileEmbedding, dep.SourceFileId);
+
+                        dependentList.Add(new
+                        {
+                            SourceFileId = dep.SourceFileId,
+                            SourcePath = sourceFile.FilePath,
+                            DependencyType = dep.DependencyType ?? "import",
+                            Score = semanticScore ?? (dep.Strength ?? 1) // Use semantic score, fallback to strength
+                        });
+                    }
                 }
             }
 
-            // Get blast radius (recursive dependents) with semantic scores
-            // Only include files with semantic score > 0.7 (highly similar)
-            var allDependents = await GetAllDependentsRecursive(fileId, new HashSet<Guid>());
-            var blastRadiusList = new List<object>();
-
-            foreach (var d in allDependents.Where(d => !directDependentIds.Contains(d.FileId)).DistinctBy(d => d.FileId))
-            {
-                var semanticScore = await CalculateSemanticSimilarity(currentFileEmbedding, d.FileId);
-
-                // Only add if semantic score > 0.7 (highly similar files)
-                if (semanticScore.HasValue && semanticScore.Value > 0.7)
-                {
-                    blastRadiusList.Add(new
-                    {
-                        SourceFileId = d.FileId,
-                        SourcePath = d.FilePath,
-                        DependencyType = "indirect",
-                        Score = semanticScore.Value
-                    });
-                }
-            }
+            // REMOVED: BlastRadius calculation (was causing 100+ DB calls)
+            // Use Dependents for direct impact (much faster)
 
             // Get semantic neighbors (files with similar embeddings)
             var embeddings = await _db.GetEmbeddingsByFile(fileId);
@@ -905,9 +895,7 @@ public class RepositoriesController : ControllerBase
                 TotalDeletions = totalDeletions,
                 ChangeHistory = changeHistory,
                 Dependencies = dependencyList,
-                IndirectDependencies = indirectDependencyList,
                 Dependents = dependentList,
-                BlastRadius = blastRadiusList,
                 SemanticNeighbors = semanticNeighbors,
                 Metrics = new
                 {
