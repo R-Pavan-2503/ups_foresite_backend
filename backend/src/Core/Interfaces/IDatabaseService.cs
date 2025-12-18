@@ -101,4 +101,40 @@ public interface IDatabaseService
     Task<long> EnqueueWebhook(string payload);
     Task<WebhookQueueItem?> GetNextPendingWebhook();
     Task UpdateWebhookStatus(long id, string status);
+
+    // ============================================
+    // PERSONALIZED DASHBOARD
+    // ============================================
+    
+    // File Views (Recent Files)
+    Task<List<FileView>> GetRecentFileViews(Guid userId, int limit = 10);
+    Task UpsertFileView(Guid userId, Guid fileId);
+    
+    // File Bookmarks
+    Task<List<FileBookmark>> GetFileBookmarks(Guid userId);
+    Task<bool> IsFileBookmarked(Guid userId, Guid fileId);
+    Task CreateFileBookmark(Guid userId, Guid fileId, string? category = null);
+    Task DeleteFileBookmark(Guid userId, Guid fileId);
+    
+    // Team Activity
+    Task<List<Commit>> GetTeamActivity(Guid userId, int limit = 20);
+    
+    // Quick Stats
+    Task<int> GetUserFileViewCount(Guid userId);
+    Task<int> GetUserRepositoryCount(Guid userId);
+    Task<int> GetUserCommitCount(Guid userId);
+    Task<int> GetUserPrsReviewedCount(Guid userId);
+    
+    // Pending Reviews (PRs waiting for user's input based on file ownership)
+    Task<List<PullRequest>> GetPendingReviews(Guid userId, int limit = 10);
+    
+    // Debug helpers
+    Task<List<PullRequest>> GetAllOpenPrs();
+    Task<bool> CheckUserRepositoryAccess(Guid userId, Guid repositoryId);
+    Task<bool> HasUserReviewedPr(Guid userId, Guid prId);
+    
+    // PR Requested Reviewers (NEW)
+    Task CreatePrRequestedReviewer(PrRequestedReviewer reviewer);
+    Task DeletePrRequestedReviewers(Guid prId);
+    Task<List<PullRequest>> GetPrsWhereUserIsRequestedReviewer(Guid userId, int limit = 10);
 }

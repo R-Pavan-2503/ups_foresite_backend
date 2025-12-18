@@ -1653,5 +1653,410 @@ public class DatabaseService : IDatabaseService
         }
         return result;
     }
+
+    // ============================================
+    // PERSONALIZED DASHBOARD
+    // ============================================
+
+    public async Task<List<FileView>> GetRecentFileViews(Guid userId, int limit = 10)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            @"SELECT id, user_id, file_id, viewed_at 
+              FROM file_views 
+              WHERE user_id = @userId 
+              ORDER BY viewed_at DESC 
+              LIMIT @limit",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("limit", limit);
+
+        var views = new List<FileView>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            views.Add(new FileView
+            {
+                Id = reader.GetGuid(0),
+                UserId = reader.GetGuid(1),
+                FileId = reader.GetGuid(2),
+                ViewedAt = reader.GetDateTime(3)
+            });
+        }
+        return views;
+    }
+
+    public async Task UpsertFileView(Guid userId, Guid fileId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            @"INSERT INTO file_views (user_id, file_id, viewed_at) 
+              VALUES (@userId, @fileId, NOW()) 
+              ON CONFLICT (user_id, file_id) 
+              DO UPDATE SET viewed_at = NOW()",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("fileId", fileId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<FileBookmark>> GetFileBookmarks(Guid userId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            @"SELECT id, user_id, file_id, category, created_at 
+              FROM file_bookmarks 
+              WHERE user_id = @userId 
+              ORDER BY created_at DESC",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+
+        var bookmarks = new List<FileBookmark>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            bookmarks.Add(new FileBookmark
+            {
+                Id = reader.GetGuid(0),
+                UserId = reader.GetGuid(1),
+                FileId = reader.GetGuid(2),
+                Category = reader.IsDBNull(3) ? null : reader.GetString(3),
+                CreatedAt = reader.GetDateTime(4)
+            });
+        }
+        return bookmarks;
+    }
+
+    public async Task<bool> IsFileBookmarked(Guid userId, Guid fileId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT 1 FROM file_bookmarks WHERE user_id = @userId AND file_id = @fileId LIMIT 1",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("fileId", fileId);
+
+        var result = await cmd.ExecuteScalarAsync();
+        return result != null;
+    }
+
+    public async Task CreateFileBookmark(Guid userId, Guid fileId, string? category = null)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            @"INSERT INTO file_bookmarks (user_id, file_id, category, created_at) 
+              VALUES (@userId, @fileId, @category, NOW()) 
+              ON CONFLICT (user_id, file_id) DO NOTHING",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("fileId", fileId);
+        cmd.Parameters.AddWithValue("category", (object?)category ?? DBNull.Value);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task DeleteFileBookmark(Guid userId, Guid fileId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "DELETE FROM file_bookmarks WHERE user_id = @userId AND file_id = @fileId",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("fileId", fileId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<Commit>> GetTeamActivity(Guid userId, int limit = 20)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        // Get recent commits from repositories the user has access to
+        using var cmd = new NpgsqlCommand(
+            @"SELECT c.id, c.repository_id, c.sha, c.message, c.author_name, c.author_email, c.committed_at
+              FROM commits c
+              JOIN repository_user_access rua ON c.repository_id = rua.repository_id
+              WHERE rua.user_id = @userId
+              ORDER BY c.committed_at DESC
+              LIMIT @limit",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("limit", limit);
+
+        var commits = new List<Commit>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            commits.Add(new Commit
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                Sha = reader.GetString(2),
+                Message = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AuthorName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                AuthorEmail = reader.IsDBNull(5) ? null : reader.GetString(5),
+                CommittedAt = reader.GetDateTime(6)
+            });
+        }
+        return commits;
+    }
+
+    public async Task<int> GetUserFileViewCount(Guid userId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT COUNT(*) FROM file_views WHERE user_id = @userId",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+
+        var result = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt32(result);
+    }
+
+    public async Task<int> GetUserRepositoryCount(Guid userId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT COUNT(*) FROM repository_user_access WHERE user_id = @userId",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+
+        var result = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt32(result);
+    }
+
+    public async Task<int> GetUserCommitCount(Guid userId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        // Get commits where the author_user_id matches the user
+        using var cmd = new NpgsqlCommand(@"
+            SELECT COUNT(*) FROM commits c
+            WHERE c.author_user_id = @userId
+            AND c.committed_at >= NOW() - INTERVAL '7 days'",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+
+        var result = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt32(result);
+    }
+
+    public async Task<int> GetUserPrsReviewedCount(Guid userId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        // Get PRs where user submitted a review (from reviews table)
+        // Note: reviews table doesn't have timestamp, so we count all reviews
+        using var cmd = new NpgsqlCommand(@"
+            SELECT COUNT(DISTINCT r.pr_id) FROM reviews r
+            WHERE r.reviewer_id = @userId",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+
+        var result = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt32(result);
+    }
+
+    public async Task<List<PullRequest>> GetPendingReviews(Guid userId, int limit = 10)
+    {
+        // First, try to get PRs where user is a specifically requested reviewer
+        var requestedReviewPrs = await GetPrsWhereUserIsRequestedReviewer(userId, limit);
+        
+        // If we found PRs where user is requested reviewer, return those
+        if (requestedReviewPrs.Count > 0)
+        {
+            return requestedReviewPrs;
+        }
+        
+        // Fallback: Get PRs from repos user has access to (for repos that haven't synced reviewers yet)
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        // Get open PRs from repositories the user has access to (via repository_user_access)
+        // OR from repos the user owns (connected_by_user_id)
+        // Show PRs that user hasn't reviewed yet (excluding their own PRs)
+        using var cmd = new NpgsqlCommand(@"
+            SELECT DISTINCT ON (pr.id) pr.id, pr.repository_id, pr.pr_number, pr.title, 
+                   pr.state, pr.author_id
+            FROM pull_requests pr
+            JOIN repositories r ON r.id = pr.repository_id
+            WHERE (
+                EXISTS (SELECT 1 FROM repository_user_access rua WHERE rua.repository_id = pr.repository_id AND rua.user_id = @userId)
+                OR r.connected_by_user_id = @userId
+            )
+            AND pr.state = 'open'
+            AND (pr.author_id IS NULL OR pr.author_id != @userId)
+            AND NOT EXISTS (
+                SELECT 1 FROM reviews rv 
+                WHERE rv.pr_id = pr.id AND rv.reviewer_id = @userId
+            )
+            ORDER BY pr.id
+            LIMIT @limit",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("limit", limit);
+
+        var prs = new List<PullRequest>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        while (await reader.ReadAsync())
+        {
+            prs.Add(new PullRequest
+            {
+                Id = reader.GetGuid(reader.GetOrdinal("id")),
+                RepositoryId = reader.GetGuid(reader.GetOrdinal("repository_id")),
+                PrNumber = reader.GetInt32(reader.GetOrdinal("pr_number")),
+                Title = reader.IsDBNull(reader.GetOrdinal("title")) ? null : reader.GetString(reader.GetOrdinal("title")),
+                State = reader.IsDBNull(reader.GetOrdinal("state")) ? null : reader.GetString(reader.GetOrdinal("state")),
+                AuthorId = reader.IsDBNull(reader.GetOrdinal("author_id")) ? null : reader.GetGuid(reader.GetOrdinal("author_id"))
+            });
+        }
+
+        return prs;
+    }
+
+    // Debug helper methods
+    public async Task<List<PullRequest>> GetAllOpenPrs()
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(@"
+            SELECT id, repository_id, pr_number, title, state, author_id 
+            FROM pull_requests 
+            WHERE state = 'open'
+            ORDER BY pr_number", conn);
+
+        var prs = new List<PullRequest>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            prs.Add(new PullRequest
+            {
+                Id = reader.GetGuid(reader.GetOrdinal("id")),
+                RepositoryId = reader.IsDBNull(reader.GetOrdinal("repository_id")) ? Guid.Empty : reader.GetGuid(reader.GetOrdinal("repository_id")),
+                PrNumber = reader.GetInt32(reader.GetOrdinal("pr_number")),
+                Title = reader.IsDBNull(reader.GetOrdinal("title")) ? null : reader.GetString(reader.GetOrdinal("title")),
+                State = reader.IsDBNull(reader.GetOrdinal("state")) ? null : reader.GetString(reader.GetOrdinal("state")),
+                AuthorId = reader.IsDBNull(reader.GetOrdinal("author_id")) ? null : reader.GetGuid(reader.GetOrdinal("author_id"))
+            });
+        }
+        return prs;
+    }
+
+    public async Task<bool> CheckUserRepositoryAccess(Guid userId, Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            "SELECT COUNT(*) FROM repository_user_access WHERE user_id = @userId AND repository_id = @repositoryId",
+            conn);
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("repositoryId", repositoryId);
+        var result = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt32(result) > 0;
+    }
+
+    public async Task<bool> HasUserReviewedPr(Guid userId, Guid prId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            "SELECT COUNT(*) FROM reviews WHERE reviewer_id = @userId AND pr_id = @prId",
+            conn);
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("prId", prId);
+        var result = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt32(result) > 0;
+    }
+
+    // NEW: PR Requested Reviewers methods
+    public async Task CreatePrRequestedReviewer(PrRequestedReviewer reviewer)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        try
+        {
+            using var cmd = new NpgsqlCommand(@"
+                INSERT INTO pr_requested_reviewers (pr_id, reviewer_id, github_user_id) 
+                VALUES (@prId, @reviewerId, @githubUserId)",
+                conn);
+            cmd.Parameters.AddWithValue("prId", reviewer.PrId);
+            cmd.Parameters.AddWithValue("reviewerId", (object?)reviewer.ReviewerId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("githubUserId", (object?)reviewer.GitHubUserId ?? DBNull.Value);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch (PostgresException ex) when (ex.SqlState == "23505")
+        {
+            // Ignore duplicate key errors - reviewer already exists for this PR
+        }
+    }
+
+    public async Task DeletePrRequestedReviewers(Guid prId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            "DELETE FROM pr_requested_reviewers WHERE pr_id = @prId",
+            conn);
+        cmd.Parameters.AddWithValue("prId", prId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<PullRequest>> GetPrsWhereUserIsRequestedReviewer(Guid userId, int limit = 10)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        
+        // Get the user's GitHub ID for matching
+        var user = await GetUserById(userId);
+        
+        using var cmd = new NpgsqlCommand(@"
+            SELECT DISTINCT pr.id, pr.repository_id, pr.pr_number, pr.title, pr.state, pr.author_id
+            FROM pull_requests pr
+            JOIN pr_requested_reviewers prr ON prr.pr_id = pr.id
+            WHERE (prr.reviewer_id = @userId OR prr.github_user_id = @githubUserId)
+            AND pr.state = 'open'
+            AND NOT EXISTS (
+                SELECT 1 FROM reviews rv 
+                WHERE rv.pr_id = pr.id AND rv.reviewer_id = @userId
+            )
+            ORDER BY pr.pr_number DESC
+            LIMIT @limit",
+            conn);
+        
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("githubUserId", (object?)user?.GithubId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("limit", limit);
+        
+        var prs = new List<PullRequest>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            prs.Add(new PullRequest
+            {
+                Id = reader.GetGuid(reader.GetOrdinal("id")),
+                RepositoryId = reader.IsDBNull(reader.GetOrdinal("repository_id")) ? Guid.Empty : reader.GetGuid(reader.GetOrdinal("repository_id")),
+                PrNumber = reader.GetInt32(reader.GetOrdinal("pr_number")),
+                Title = reader.IsDBNull(reader.GetOrdinal("title")) ? null : reader.GetString(reader.GetOrdinal("title")),
+                State = reader.IsDBNull(reader.GetOrdinal("state")) ? null : reader.GetString(reader.GetOrdinal("state")),
+                AuthorId = reader.IsDBNull(reader.GetOrdinal("author_id")) ? null : reader.GetGuid(reader.GetOrdinal("author_id"))
+            });
+        }
+        return prs;
+    }
 }
 
