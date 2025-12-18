@@ -981,15 +981,20 @@ public class NotesService : INotesService
 
     private async Task<List<Guid>> ParseMentionsAsync(NpgsqlConnection conn, string message, Guid repositoryId)
     {
-        // Find @username patterns
-        var matches = Regex.Matches(message, @"@(\w+)");
+        // Find @username patterns (supports letters, numbers, hyphens, underscores)
+        // Using explicit character class with escaped hyphen for clarity
+        var matches = Regex.Matches(message, @"@([\w\-]+)");
         if (matches.Count == 0) return new List<Guid>();
 
         var usernames = matches.Select(m => m.Groups[1].Value).Distinct().ToList();
+        _logger.LogInformation($"ParseMentions: Found {usernames.Count} mentions in message: {string.Join(", ", usernames)}");
+        
         var userIds = new List<Guid>();
 
         foreach (var username in usernames)
         {
+            _logger.LogInformation($"ParseMentions: Looking up user '{username}' in repository {repositoryId}");
+            
             using var cmd = new NpgsqlCommand(
                 @"SELECT u.id FROM users u
                   INNER JOIN repository_user_access rua ON u.id = rua.user_id
@@ -1000,7 +1005,12 @@ public class NotesService : INotesService
             var userId = await cmd.ExecuteScalarAsync();
             if (userId != null)
             {
+                _logger.LogInformation($"ParseMentions: Found user {username} with ID {userId}");
                 userIds.Add((Guid)userId);
+            }
+            else
+            {
+                _logger.LogWarning($"ParseMentions: User '{username}' not found in repository {repositoryId}");
             }
         }
 
