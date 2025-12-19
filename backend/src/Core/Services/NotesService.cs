@@ -178,9 +178,10 @@ public class NotesService : INotesService
 
             // Update repo note
             using var updateRepoCmd = new NpgsqlCommand(
-                @"UPDATE repo_sticky_notes SET content = @content, tagged_file_ids = @taggedFiles, updated_at = @now WHERE id = @noteId", conn);
+                @"UPDATE repo_sticky_notes SET content = @content, tagged_file_ids = @taggedFiles, tagged_branch_ids = @taggedBranches, updated_at = @now WHERE id = @noteId", conn);
             updateRepoCmd.Parameters.AddWithValue("content", request.Content ?? (object)DBNull.Value);
             updateRepoCmd.Parameters.AddWithValue("taggedFiles", request.TaggedFileIds?.ToArray() ?? (object)DBNull.Value);
+            updateRepoCmd.Parameters.AddWithValue("taggedBranches", request.TaggedBranchIds?.ToArray() ?? (object)DBNull.Value);
             updateRepoCmd.Parameters.AddWithValue("now", DateTime.UtcNow);
             updateRepoCmd.Parameters.AddWithValue("noteId", noteId);
             await updateRepoCmd.ExecuteNonQueryAsync();
@@ -558,10 +559,11 @@ public class NotesService : INotesService
 
         // Try repo personal notes
         using var updateRepoCmd = new NpgsqlCommand(
-            @"UPDATE repo_personal_notes SET content = @content, tagged_file_ids = @taggedFiles, updated_at = @now 
+            @"UPDATE repo_personal_notes SET content = @content, tagged_file_ids = @taggedFiles, tagged_branch_ids = @taggedBranches, updated_at = @now 
               WHERE id = @noteId AND user_id = @userId", conn);
         updateRepoCmd.Parameters.AddWithValue("content", request.Content);
         updateRepoCmd.Parameters.AddWithValue("taggedFiles", request.TaggedFileIds?.ToArray() ?? (object)DBNull.Value);
+        updateRepoCmd.Parameters.AddWithValue("taggedBranches", request.TaggedBranchIds?.ToArray() ?? (object)DBNull.Value);
         updateRepoCmd.Parameters.AddWithValue("now", DateTime.UtcNow);
         updateRepoCmd.Parameters.AddWithValue("noteId", noteId);
         updateRepoCmd.Parameters.AddWithValue("userId", userId);
@@ -604,7 +606,7 @@ public class NotesService : INotesService
 
         using var cmd = new NpgsqlCommand(
             @"SELECT n.id, n.repository_id, n.created_by_user_id, n.note_type, 
-                     n.content, n.document_url, n.document_name, n.document_size, n.tagged_file_ids,
+   n.content, n.document_url, n.document_name, n.document_size, n.tagged_file_ids, n.tagged_branch_ids,
                      n.created_at, n.updated_at,
                      u.author_name, u.avatar_url
               FROM repo_sticky_notes n
@@ -618,7 +620,8 @@ public class NotesService : INotesService
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            var taggedFileIds = reader.IsDBNull(8) ? null : (Guid[])reader.GetValue(8);
+            var taggedFileIds = reader.IsDBNull(8) ? null : ((Guid[])reader.GetValue(8)).ToList();
+            var taggedBranchIds = reader.IsDBNull(9) ? null : ((Guid[])reader.GetValue(9)).ToList();
             notes.Add(new StickyNoteDto
             {
                 Id = reader.GetGuid(0),
@@ -630,13 +633,26 @@ public class NotesService : INotesService
                 DocumentUrl = reader.IsDBNull(5) ? null : reader.GetString(5),
                 DocumentName = reader.IsDBNull(6) ? null : reader.GetString(6),
                 DocumentSize = reader.IsDBNull(7) ? null : reader.GetInt64(7),
-                TaggedFileIds = taggedFileIds?.ToList(),
-                CreatedAt = reader.GetDateTime(9),
-                UpdatedAt = reader.GetDateTime(10),
-                CreatedByUsername = reader.IsDBNull(11) ? "Unknown" : reader.GetString(11),
-                CreatedByAvatarUrl = reader.IsDBNull(12) ? null : reader.GetString(12)
+                TaggedFileIds = taggedFileIds,
+                TaggedBranchIds = taggedBranchIds,
+                CreatedAt = reader.GetDateTime(10),
+                UpdatedAt = reader.GetDateTime(11),
+                CreatedByUsername = reader.IsDBNull(12) ? "Unknown" : reader.GetString(12),
+                CreatedByAvatarUrl = reader.IsDBNull(13) ? null : reader.GetString(13)
             });
         }
+        reader.Close();
+
+        // Fetch tagged file and branch details for all notes
+        foreach (var note in notes)
+        {
+            if (note.TaggedFileIds?.Count > 0)
+                note.TaggedFiles = await GetFileInfoAsync(conn, note.TaggedFileIds);
+
+            if (note.TaggedBranchIds?.Count > 0)
+                note.TaggedBranches = await GetBranchInfoAsync(conn, note.TaggedBranchIds);
+        }
+
         return notes;
     }
 
@@ -648,19 +664,30 @@ public class NotesService : INotesService
         var now = DateTime.UtcNow;
 
         using var cmd = new NpgsqlCommand(
-            @"INSERT INTO repo_sticky_notes (id, repository_id, created_by_user_id, note_type, content, tagged_file_ids, created_at, updated_at)
-              VALUES (@id, @repoId, @userId, 'text', @content, @taggedFiles, @now, @now)", conn);
+            @"INSERT INTO repo_sticky_notes (id, repository_id, created_by_user_id, note_type, content, tagged_file_ids, tagged_branch_ids, created_at, updated_at)
+              VALUES (@id, @repoId, @userId, 'text', @content, @taggedFiles, @taggedBranches, @now, @now)", conn);
 
         cmd.Parameters.AddWithValue("id", noteId);
         cmd.Parameters.AddWithValue("repoId", request.RepositoryId);
         cmd.Parameters.AddWithValue("userId", userId);
         cmd.Parameters.AddWithValue("content", request.Content);
         cmd.Parameters.AddWithValue("taggedFiles", request.TaggedFileIds?.ToArray() ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("taggedBranches", request.TaggedBranchIds?.ToArray() ?? (object)DBNull.Value);
         cmd.Parameters.AddWithValue("now", now);
 
         await cmd.ExecuteNonQueryAsync();
 
         var user = await GetUserInfoAsync(conn, userId);
+
+        // Fetch tagged file and branch info
+        List<TaggedFileDto>? taggedFiles = null;
+        List<TaggedBranchDto>? taggedBranches = null;
+
+        if (request.TaggedFileIds?.Count > 0)
+            taggedFiles = await GetFileInfoAsync(conn, request.TaggedFileIds);
+
+        if (request.TaggedBranchIds?.Count > 0)
+            taggedBranches = await GetBranchInfoAsync(conn, request.TaggedBranchIds);
 
         return new StickyNoteDto
         {
@@ -671,6 +698,9 @@ public class NotesService : INotesService
             NoteType = "text",
             Content = request.Content,
             TaggedFileIds = request.TaggedFileIds,
+            TaggedFiles = taggedFiles,
+            TaggedBranchIds = request.TaggedBranchIds,
+            TaggedBranches = taggedBranches,
             CreatedAt = now,
             UpdatedAt = now,
             CreatedByUsername = user?.AuthorName ?? "Unknown",
@@ -689,8 +719,8 @@ public class NotesService : INotesService
         var fileSize = fileStream.Length;
 
         using var cmd = new NpgsqlCommand(
-            @"INSERT INTO repo_sticky_notes (id, repository_id, created_by_user_id, note_type, document_url, document_name, document_size, tagged_file_ids, created_at, updated_at)
-              VALUES (@id, @repoId, @userId, 'document', @docUrl, @docName, @docSize, @taggedFiles, @now, @now)", conn);
+            @"INSERT INTO repo_sticky_notes (id, repository_id, created_by_user_id, note_type, document_url, document_name, document_size, tagged_file_ids, tagged_branch_ids, created_at, updated_at)
+              VALUES (@id, @repoId, @userId, 'document', @docUrl, @docName, @docSize, @taggedFiles, @taggedBranches, @now, @now)", conn);
 
         cmd.Parameters.AddWithValue("id", noteId);
         cmd.Parameters.AddWithValue("repoId", repositoryId);
@@ -699,6 +729,7 @@ public class NotesService : INotesService
         cmd.Parameters.AddWithValue("docName", fileName);
         cmd.Parameters.AddWithValue("docSize", fileSize);
         cmd.Parameters.AddWithValue("taggedFiles", taggedFileIds?.ToArray() ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("taggedBranches", (object)DBNull.Value);
         cmd.Parameters.AddWithValue("now", now);
 
         await cmd.ExecuteNonQueryAsync();
@@ -753,7 +784,7 @@ public class NotesService : INotesService
         if (thread == null) return null;
 
         using var msgCmd = new NpgsqlCommand(
-            @"SELECT m.id, m.thread_id, m.user_id, m.message, m.mentioned_users, m.tagged_file_ids, 
+            @"SELECT m.id, m.thread_id, m.user_id, m.message, m.mentioned_users, m.tagged_file_ids, m.tagged_branch_ids,
                      m.created_at, m.updated_at, u.author_name, u.avatar_url
               FROM repo_discussion_messages m
               LEFT JOIN users u ON m.user_id = u.id
@@ -761,24 +792,40 @@ public class NotesService : INotesService
               ORDER BY m.created_at ASC", conn);
         msgCmd.Parameters.AddWithValue("threadId", thread.Id);
 
+        var messages = new List<DiscussionMessageDto>();
         using var msgReader = await msgCmd.ExecuteReaderAsync();
         while (await msgReader.ReadAsync())
         {
-            var taggedFileIdsArray = msgReader.IsDBNull(5) ? null : (Guid[])msgReader.GetValue(5);
+            var taggedFileIds = msgReader.IsDBNull(5) ? null : ((Guid[])msgReader.GetValue(5)).ToList();
+            var taggedBranchIds = msgReader.IsDBNull(6) ? null : ((Guid[])msgReader.GetValue(6)).ToList();
 
-            thread.Messages.Add(new DiscussionMessageDto
+            messages.Add(new DiscussionMessageDto
             {
                 Id = msgReader.GetGuid(0),
                 ThreadId = msgReader.GetGuid(1),
                 UserId = msgReader.GetGuid(2),
                 Message = msgReader.GetString(3),
-                CreatedAt = msgReader.GetDateTime(6),
-                UpdatedAt = msgReader.GetDateTime(7),
-                Username = msgReader.IsDBNull(8) ? "Unknown" : msgReader.GetString(8),
-                AvatarUrl = msgReader.IsDBNull(9) ? null : msgReader.GetString(9)
+                TaggedFileIds = taggedFileIds,
+                TaggedBranchIds = taggedBranchIds,
+                CreatedAt = msgReader.GetDateTime(7),
+                UpdatedAt = msgReader.GetDateTime(8),
+                Username = msgReader.IsDBNull(9) ? "Unknown" : msgReader.GetString(9),
+                AvatarUrl = msgReader.IsDBNull(10) ? null : msgReader.GetString(10)
             });
         }
+        msgReader.Close();
 
+        // Fetch tagged files and branches for all messages
+        foreach (var msg in messages)
+        {
+            if (msg.TaggedFileIds?.Count > 0)
+                msg.TaggedFiles = await GetFileInfoAsync(conn, msg.TaggedFileIds);
+
+            if (msg.TaggedBranchIds?.Count > 0)
+                msg.TaggedBranches = await GetBranchInfoAsync(conn, msg.TaggedBranchIds);
+        }
+
+        thread.Messages = messages;
         return thread;
     }
 
@@ -817,14 +864,16 @@ public class NotesService : INotesService
         var now = DateTime.UtcNow;
 
         using var msgCmd = new NpgsqlCommand(
-            @"INSERT INTO repo_discussion_messages (id, thread_id, user_id, message, mentioned_users, created_at, updated_at)
-              VALUES (@id, @threadId, @userId, @message, @mentions, @now, @now)", conn);
+            @"INSERT INTO repo_discussion_messages (id, thread_id, user_id, message, mentioned_users, tagged_file_ids, tagged_branch_ids, created_at, updated_at)
+              VALUES (@id, @threadId, @userId, @message, @mentions, @taggedFiles, @taggedBranches, @now, @now)", conn);
 
         msgCmd.Parameters.AddWithValue("id", messageId);
         msgCmd.Parameters.AddWithValue("threadId", threadId);
         msgCmd.Parameters.AddWithValue("userId", userId);
         msgCmd.Parameters.AddWithValue("message", request.Message);
         msgCmd.Parameters.AddWithValue("mentions", mentionedUserIds.Count > 0 ? mentionedUserIds.ToArray() : DBNull.Value);
+        msgCmd.Parameters.AddWithValue("taggedFiles", request.TaggedFileIds?.ToArray() ?? (object)DBNull.Value);
+        msgCmd.Parameters.AddWithValue("taggedBranches", request.TaggedBranchIds?.ToArray() ?? (object)DBNull.Value);
         msgCmd.Parameters.AddWithValue("now", now);
 
         await msgCmd.ExecuteNonQueryAsync();
@@ -841,12 +890,26 @@ public class NotesService : INotesService
             }
         }
 
+        // Fetch tagged files and branches
+        List<TaggedFileDto>? taggedFiles = null;
+        List<TaggedBranchDto>? taggedBranches = null;
+
+        if (request.TaggedFileIds?.Count > 0)
+            taggedFiles = await GetFileInfoAsync(conn, request.TaggedFileIds);
+
+        if (request.TaggedBranchIds?.Count > 0)
+            taggedBranches = await GetBranchInfoAsync(conn, request.TaggedBranchIds);
+
         return new DiscussionMessageDto
         {
             Id = messageId,
             ThreadId = threadId,
             UserId = userId,
             Message = request.Message,
+            TaggedFileIds = request.TaggedFileIds,
+            TaggedFiles = taggedFiles,
+            TaggedBranchIds = request.TaggedBranchIds,
+            TaggedBranches = taggedBranches,
             CreatedAt = now,
             UpdatedAt = now,
             Username = user?.AuthorName ?? "Unknown",
@@ -863,7 +926,7 @@ public class NotesService : INotesService
         await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
-            @"SELECT id, repository_id, content, tagged_file_ids, created_at, updated_at
+            @"SELECT id, repository_id, content, tagged_file_ids, tagged_branch_ids, created_at, updated_at
               FROM repo_personal_notes
               WHERE repository_id = @repoId AND user_id = @userId
               ORDER BY created_at DESC", conn);
@@ -875,15 +938,32 @@ public class NotesService : INotesService
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
+            var taggedFileIds = reader.IsDBNull(3) ? null : ((Guid[])reader.GetValue(3)).ToList();
+            var taggedBranchIds = reader.IsDBNull(4) ? null : ((Guid[])reader.GetValue(4)).ToList();
+
             notes.Add(new PersonalNoteDto
             {
                 Id = reader.GetGuid(0),
                 RepositoryId = reader.GetGuid(1),
                 Content = reader.GetString(2),
-                CreatedAt = reader.GetDateTime(4),
-                UpdatedAt = reader.GetDateTime(5)
+                TaggedFileIds = taggedFileIds,
+                TaggedBranchIds = taggedBranchIds,
+                CreatedAt = reader.GetDateTime(5),
+                UpdatedAt = reader.GetDateTime(6)
             });
         }
+        reader.Close();
+
+        // Fetch tagged files and branches for all notes
+        foreach (var note in notes)
+        {
+            if (note.TaggedFileIds?.Count > 0)
+                note.TaggedFiles = await GetFileInfoAsync(conn, note.TaggedFileIds);
+
+            if (note.TaggedBranchIds?.Count > 0)
+                note.TaggedBranches = await GetBranchInfoAsync(conn, note.TaggedBranchIds);
+        }
+
         return notes;
     }
 
@@ -895,23 +975,38 @@ public class NotesService : INotesService
         var now = DateTime.UtcNow;
 
         using var cmd = new NpgsqlCommand(
-            @"INSERT INTO repo_personal_notes (id, repository_id, user_id, content, tagged_file_ids, created_at, updated_at)
-              VALUES (@id, @repoId, @userId, @content, @taggedFiles, @now, @now)", conn);
+            @"INSERT INTO repo_personal_notes (id, repository_id, user_id, content, tagged_file_ids, tagged_branch_ids, created_at, updated_at)
+              VALUES (@id, @repoId, @userId, @content, @taggedFiles, @taggedBranches, @now, @now)", conn);
 
         cmd.Parameters.AddWithValue("id", noteId);
         cmd.Parameters.AddWithValue("repoId", request.RepositoryId!);
         cmd.Parameters.AddWithValue("userId", userId);
         cmd.Parameters.AddWithValue("content", request.Content);
         cmd.Parameters.AddWithValue("taggedFiles", request.TaggedFileIds?.ToArray() ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("taggedBranches", request.TaggedBranchIds?.ToArray() ?? (object)DBNull.Value);
         cmd.Parameters.AddWithValue("now", now);
 
         await cmd.ExecuteNonQueryAsync();
+
+        // Fetch tagged files and branches
+        List<TaggedFileDto>? taggedFiles = null;
+        List<TaggedBranchDto>? taggedBranches = null;
+
+        if (request.TaggedFileIds?.Count > 0)
+            taggedFiles = await GetFileInfoAsync(conn, request.TaggedFileIds);
+
+        if (request.TaggedBranchIds?.Count > 0)
+            taggedBranches = await GetBranchInfoAsync(conn, request.TaggedBranchIds);
 
         return new PersonalNoteDto
         {
             Id = noteId,
             RepositoryId = request.RepositoryId,
             Content = request.Content,
+            TaggedFileIds = request.TaggedFileIds,
+            TaggedFiles = taggedFiles,
+            TaggedBranchIds = request.TaggedBranchIds,
+            TaggedBranches = taggedBranches,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -1040,5 +1135,49 @@ public class NotesService : INotesService
 
         return lineNumbers.Distinct().OrderBy(x => x).ToList();
     }
-}
 
+    private async Task<List<TaggedFileDto>> GetFileInfoAsync(NpgsqlConnection conn, List<Guid> fileIds)
+    {
+        if (fileIds == null || fileIds.Count == 0)
+            return new List<TaggedFileDto>();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, file_path FROM repository_files WHERE id = ANY(@ids)", conn);
+        cmd.Parameters.AddWithValue("ids", fileIds.ToArray());
+
+        var files = new List<TaggedFileDto>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            files.Add(new TaggedFileDto
+            {
+                Id = reader.GetGuid(0),
+                FilePath = reader.GetString(1)
+            });
+        }
+        return files;
+    }
+
+    private async Task<List<TaggedBranchDto>> GetBranchInfoAsync(NpgsqlConnection conn, List<Guid> branchIds)
+    {
+        if (branchIds == null || branchIds.Count == 0)
+            return new List<TaggedBranchDto>();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, name, is_default FROM branches WHERE id = ANY(@ids)", conn);
+        cmd.Parameters.AddWithValue("ids", branchIds.ToArray());
+
+        var branches = new List<TaggedBranchDto>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            branches.Add(new TaggedBranchDto
+            {
+                Id = reader.GetGuid(0),
+                Name = reader.GetString(1),
+                IsDefault = reader.GetBoolean(2)
+            });
+        }
+        return branches;
+    }
+}

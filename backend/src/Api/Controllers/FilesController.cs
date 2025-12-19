@@ -417,4 +417,43 @@ public class FilesController : ControllerBase
             });
         }
     }
+
+    // Get branches that contain a specific file
+    [HttpGet("{fileId}/branches")]
+    public async Task<IActionResult> GetFileBranches(Guid fileId)
+    {
+        try
+        {
+            var file = await _db.GetFileById(fileId);
+            if (file == null) return NotFound(new { error = "File not found" });
+
+            var repository = await _db.GetRepositoryById(file.RepositoryId);
+            if (repository == null) return NotFound(new { error = "Repository not found" });
+
+            // Get all branches for this repository
+            var branches = await _db.GetBranchesByRepository(file.RepositoryId);
+            var branchesWithFile = new List<string>();
+
+            // Check each branch to see if it contains this file
+            foreach (var branch in branches)
+            {
+                // Get files for this branch
+                var filesInBranch = await _db.GetFilesByBranch(file.RepositoryId, branch.Name);
+                
+                // Check if our file exists in this branch
+                if (filesInBranch.Any(f => f.FilePath == file.FilePath))
+                {
+                    branchesWithFile.Add(branch.Name);
+                }
+            }
+
+            return Ok(branchesWithFile);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error getting branches for file: {ex.Message}");
+            return StatusCode(500, new { error = "Failed to retrieve file branches" });
+        }
+    }
 }
+

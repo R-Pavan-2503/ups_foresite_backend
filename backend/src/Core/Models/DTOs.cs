@@ -137,6 +137,9 @@ public class StickyNoteDto
     public string? DocumentName { get; set; }
     public long? DocumentSize { get; set; }
     public List<Guid>? TaggedFileIds { get; set; } // for repo-level notes
+    public List<TaggedFileDto>? TaggedFiles { get; set; }
+    public List<Guid>? TaggedBranchIds { get; set; }
+    public List<TaggedBranchDto>? TaggedBranches { get; set; }
     public Guid CreatedByUserId { get; set; }
     public string CreatedByUsername { get; set; } = string.Empty;
     public string? CreatedByAvatarUrl { get; set; }
@@ -150,12 +153,14 @@ public class CreateTextStickyNoteRequest
     public Guid? FileId { get; set; } // null for repo-level notes
     public string Content { get; set; } = string.Empty;
     public List<Guid>? TaggedFileIds { get; set; } // for repo-level notes
+    public List<Guid>? TaggedBranchIds { get; set; }
 }
 
 public class UpdateStickyNoteRequest
 {
     public string? Content { get; set; }
     public List<Guid>? TaggedFileIds { get; set; }
+    public List<Guid>? TaggedBranchIds { get; set; }
 }
 
 // Discussion Thread DTOs
@@ -178,7 +183,10 @@ public class DiscussionMessageDto
     public string Message { get; set; } = string.Empty;
     public List<MentionedUserDto>? MentionedUsers { get; set; }
     public List<int>? ReferencedLineNumbers { get; set; } // for file-level
+    public List<Guid>? TaggedFileIds { get; set; }
     public List<TaggedFileDto>? TaggedFiles { get; set; } // for repo-level
+    public List<Guid>? TaggedBranchIds { get; set; }
+    public List<TaggedBranchDto>? TaggedBranches { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
@@ -196,9 +204,18 @@ public class TaggedFileDto
     public string FilePath { get; set; } = string.Empty;
 }
 
+public class TaggedBranchDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public bool IsDefault { get; set; }
+}
+
 public class PostMessageRequest
 {
     public string Message { get; set; } = string.Empty;
+    public List<Guid>? TaggedFileIds { get; set; }
+    public List<Guid>? TaggedBranchIds { get; set; }
 }
 
 public class UpdateMessageRequest
@@ -214,7 +231,10 @@ public class PersonalNoteDto
     public Guid? RepositoryId { get; set; }
     public string Content { get; set; } = string.Empty;
     public int? LineNumber { get; set; } // for file-level
+    public List<Guid>? TaggedFileIds { get; set; }
     public List<TaggedFileDto>? TaggedFiles { get; set; } // for repo-level
+    public List<Guid>? TaggedBranchIds { get; set; }
+    public List<TaggedBranchDto>? TaggedBranches { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
@@ -226,6 +246,7 @@ public class CreatePersonalNoteRequest
     public string Content { get; set; } = string.Empty;
     public int? LineNumber { get; set; } // for file-level
     public List<Guid>? TaggedFileIds { get; set; } // for repo-level
+    public List<Guid>? TaggedBranchIds { get; set; }
 }
 
 public class UpdatePersonalNoteRequest
@@ -233,6 +254,7 @@ public class UpdatePersonalNoteRequest
     public string Content { get; set; } = string.Empty;
     public int? LineNumber { get; set; }
     public List<Guid>? TaggedFileIds { get; set; }
+    public List<Guid>? TaggedBranchIds { get; set; }
 }
 
 // Notification DTOs
