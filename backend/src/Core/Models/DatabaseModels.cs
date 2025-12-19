@@ -109,6 +109,14 @@ public class PrFileChanged
     public Guid FileId { get; set; }
 }
 
+// NEW: Track requested reviewers from GitHub PR
+public class PrRequestedReviewer
+{
+    public Guid PrId { get; set; }
+    public Guid? ReviewerId { get; set; }  // Can be null if reviewer not in our users table
+    public long? GitHubUserId { get; set; }  // Store GitHub user ID for lookup
+}
+
 public class PrConflict
 {
     public Guid ConflictingPrId { get; set; }
@@ -243,5 +251,26 @@ public class UserNotification
     public Guid? RelatedFileId { get; set; }
     public Guid? RelatedRepositoryId { get; set; }
     public bool IsRead { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+// ============================================
+// PERSONALIZED DASHBOARD MODELS
+// ============================================
+
+public class FileView
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public Guid FileId { get; set; }
+    public DateTime ViewedAt { get; set; }
+}
+
+public class FileBookmark
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public Guid FileId { get; set; }
+    public string? Category { get; set; }
     public DateTime CreatedAt { get; set; }
 }

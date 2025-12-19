@@ -778,6 +778,32 @@ public class AnalysisService : IAnalysisService
                             }
                         }
 
+                        // SAFE: Sync requested reviewers for EXISTING open PRs too
+                        if (pr.State.StringValue.Equals("open", StringComparison.OrdinalIgnoreCase))
+                        {
+                            try
+                            {
+                                if (pr.RequestedReviewers != null && pr.RequestedReviewers.Count > 0)
+                                {
+                                    _logger.LogInformation($"   PR #{pr.Number}: Syncing {pr.RequestedReviewers.Count} requested reviewers (existing PR)");
+                                    foreach (var reviewer in pr.RequestedReviewers)
+                                    {
+                                        var reviewerUser = await _db.GetUserByGitHubId(reviewer.Id);
+                                        await _db.CreatePrRequestedReviewer(new PrRequestedReviewer
+                                        {
+                                            PrId = existing.Id,
+                                            ReviewerId = reviewerUser?.Id,
+                                            GitHubUserId = reviewer.Id
+                                        });
+                                    }
+                                }
+                            }
+                            catch (Exception reviewerEx)
+                            {
+                                _logger.LogWarning($"   ⚠️ Failed to sync reviewers for existing PR #{pr.Number}: {reviewerEx.Message}");
+                            }
+                        }
+
                         skippedCount++;
                         continue;
                     }
@@ -844,6 +870,32 @@ public class AnalysisService : IAnalysisService
                                 PrId = dbPr.Id,
                                 FileId = file.Id
                             });
+                        }
+                        
+                        // SAFE: Sync requested reviewers (wrapped in try-catch - never breaks PR sync)
+                        try
+                        {
+                            if (pr.RequestedReviewers != null && pr.RequestedReviewers.Count > 0)
+                            {
+                                _logger.LogInformation($"   PR #{pr.Number}: Syncing {pr.RequestedReviewers.Count} requested reviewers");
+                                foreach (var reviewer in pr.RequestedReviewers)
+                                {
+                                    // Try to find reviewer in our users table
+                                    var reviewerUser = await _db.GetUserByGitHubId(reviewer.Id);
+                                    
+                                    await _db.CreatePrRequestedReviewer(new PrRequestedReviewer
+                                    {
+                                        PrId = dbPr.Id,
+                                        ReviewerId = reviewerUser?.Id,
+                                        GitHubUserId = reviewer.Id
+                                    });
+                                }
+                            }
+                        }
+                        catch (Exception reviewerEx)
+                        {
+                            // NEVER fail PR sync due to reviewer storage issues
+                            _logger.LogWarning($"   ⚠️ Failed to sync reviewers for PR #{pr.Number}: {reviewerEx.Message}");
                         }
                     }
                     else
