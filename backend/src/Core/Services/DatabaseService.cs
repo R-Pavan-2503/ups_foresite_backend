@@ -1864,11 +1864,14 @@ public class DatabaseService : IDatabaseService
     {
         await using var conn = await _dataSource.OpenConnectionAsync();
 
-        // Get PRs where user submitted a review (from reviews table)
-        // Note: reviews table doesn't have timestamp, so we count all reviews
+        // Get CLOSED PRs where user submitted a review
+        // Count only increments when the PR is actually closed after being reviewed
         using var cmd = new NpgsqlCommand(@"
-            SELECT COUNT(DISTINCT r.pr_id) FROM reviews r
-            WHERE r.reviewer_id = @userId",
+            SELECT COUNT(DISTINCT r.pr_id) 
+            FROM reviews r
+            JOIN pull_requests pr ON pr.id = r.pr_id
+            WHERE r.reviewer_id = @userId
+            AND pr.state = 'closed'",
             conn);
 
         cmd.Parameters.AddWithValue("userId", userId);
@@ -1879,29 +1882,31 @@ public class DatabaseService : IDatabaseService
 
     public async Task<List<PullRequest>> GetPendingReviews(Guid userId, int limit = 10)
     {
-        // First, try to get PRs where user is a specifically requested reviewer
-        var requestedReviewPrs = await GetPrsWhereUserIsRequestedReviewer(userId, limit);
-        
-        // If we found PRs where user is requested reviewer, return those
-        if (requestedReviewPrs.Count > 0)
-        {
-            return requestedReviewPrs;
-        }
-        
-        // Fallback: Get PRs from repos user has access to (for repos that haven't synced reviewers yet)
         await using var conn = await _dataSource.OpenConnectionAsync();
+        
+        // Get the user's GitHub ID for matching requested reviewers
+        var user = await GetUserById(userId);
+        
+        Console.WriteLine($"[DEBUG] GetPendingReviews - userId: {userId}, githubId: {user?.GithubId}");
 
-        // Get open PRs from repositories the user has access to (via repository_user_access)
-        // OR from repos the user owns (connected_by_user_id)
-        // Show PRs that user hasn't reviewed yet (excluding their own PRs)
+        // Use UNION to combine two sources of PRs:
+        // 1. PRs from repos where user is a contributor (has commits) OR owner
+        // 2. PRs where user is explicitly requested as reviewer
         using var cmd = new NpgsqlCommand(@"
-            SELECT DISTINCT ON (pr.id) pr.id, pr.repository_id, pr.pr_number, pr.title, 
-                   pr.state, pr.author_id
+            -- PRs from repos where user is contributor/owner
+            SELECT DISTINCT pr.id, pr.repository_id, pr.pr_number, pr.title, pr.state, pr.author_id, 'contributor' as source
             FROM pull_requests pr
             JOIN repositories r ON r.id = pr.repository_id
             WHERE (
-                EXISTS (SELECT 1 FROM repository_user_access rua WHERE rua.repository_id = pr.repository_id AND rua.user_id = @userId)
-                OR r.connected_by_user_id = @userId
+                -- User is owner of the repo
+                r.connected_by_user_id = @userId
+                OR
+                -- User has contributed commits to this repo
+                EXISTS (
+                    SELECT 1 FROM commits c 
+                    WHERE c.repository_id = pr.repository_id 
+                    AND c.author_user_id = @userId
+                )
             )
             AND pr.state = 'open'
             AND (pr.author_id IS NULL OR pr.author_id != @userId)
@@ -1909,11 +1914,27 @@ public class DatabaseService : IDatabaseService
                 SELECT 1 FROM reviews rv 
                 WHERE rv.pr_id = pr.id AND rv.reviewer_id = @userId
             )
-            ORDER BY pr.id
+            
+            UNION
+            
+            -- PRs where user is a requested reviewer
+            SELECT DISTINCT pr.id, pr.repository_id, pr.pr_number, pr.title, pr.state, pr.author_id, 'requested_reviewer' as source
+            FROM pull_requests pr
+            JOIN pr_requested_reviewers prr ON prr.pr_id = pr.id
+            WHERE (prr.reviewer_id = @userId OR (prr.github_user_id IS NOT NULL AND prr.github_user_id = @githubUserId))
+            AND pr.state = 'open'
+            AND (pr.author_id IS NULL OR pr.author_id != @userId)
+            AND NOT EXISTS (
+                SELECT 1 FROM reviews rv 
+                WHERE rv.pr_id = pr.id AND rv.reviewer_id = @userId
+            )
+            
+            ORDER BY pr_number DESC
             LIMIT @limit",
             conn);
 
         cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("githubUserId", (object?)user?.GithubId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("limit", limit);
 
         var prs = new List<PullRequest>();
@@ -1921,16 +1942,24 @@ public class DatabaseService : IDatabaseService
 
         while (await reader.ReadAsync())
         {
+            var source = reader.GetString(reader.GetOrdinal("source"));
+            var prNumber = reader.GetInt32(reader.GetOrdinal("pr_number"));
+            var title = reader.IsDBNull(reader.GetOrdinal("title")) ? null : reader.GetString(reader.GetOrdinal("title"));
+            
+            Console.WriteLine($"[DEBUG] PR #{prNumber} ({title}) - Source: {source}");
+            
             prs.Add(new PullRequest
             {
                 Id = reader.GetGuid(reader.GetOrdinal("id")),
                 RepositoryId = reader.GetGuid(reader.GetOrdinal("repository_id")),
-                PrNumber = reader.GetInt32(reader.GetOrdinal("pr_number")),
-                Title = reader.IsDBNull(reader.GetOrdinal("title")) ? null : reader.GetString(reader.GetOrdinal("title")),
+                PrNumber = prNumber,
+                Title = title,
                 State = reader.IsDBNull(reader.GetOrdinal("state")) ? null : reader.GetString(reader.GetOrdinal("state")),
                 AuthorId = reader.IsDBNull(reader.GetOrdinal("author_id")) ? null : reader.GetGuid(reader.GetOrdinal("author_id"))
             });
         }
+        
+        Console.WriteLine($"[DEBUG] Total PRs returned: {prs.Count}");
 
         return prs;
     }
@@ -2057,6 +2086,37 @@ public class DatabaseService : IDatabaseService
             });
         }
         return prs;
+    }
+    
+    // Debug helper methods
+    public async Task<bool> CheckUserHasCommitsInRepo(Guid userId, Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            "SELECT EXISTS(SELECT 1 FROM commits WHERE author_user_id = @userId AND repository_id = @repositoryId)",
+            conn);
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("repositoryId", repositoryId);
+        var result = await cmd.ExecuteScalarAsync();
+        return (bool?)result ?? false;
+    }
+
+    public async Task<bool> CheckIsRequestedReviewer(Guid userId, Guid prId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        var user = await GetUserById(userId);
+        using var cmd = new NpgsqlCommand(@"
+            SELECT EXISTS(
+                SELECT 1 FROM pr_requested_reviewers 
+                WHERE pr_id = @prId 
+                AND (reviewer_id = @userId OR (github_user_id IS NOT NULL AND github_user_id = @githubUserId))
+            )",
+            conn);
+        cmd.Parameters.AddWithValue("prId", prId);
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("githubUserId", (object?)user?.GithubId ?? DBNull.Value);
+        var result = await cmd.ExecuteScalarAsync();
+        return (bool?)result ?? false;
     }
 }
 

@@ -238,21 +238,74 @@ public class DashboardController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("GetPendingReviews called for userId: {UserId}", userId);
-            var prs = await _db.GetPendingReviews(userId, limit);
-            _logger.LogInformation("GetPendingReviews returned {Count} PRs for userId: {UserId}", prs.Count, userId);
-            foreach (var pr in prs)
+            // Get user to retrieve their GitHub access token
+            var user = await _db.GetUserById(userId);
+            if (user == null)
             {
-                _logger.LogInformation("  PR: #{PrNumber} - {Title} (State: {State}, AuthorId: {AuthorId})", 
-                    pr.PrNumber, pr.Title, pr.State, pr.AuthorId);
+                return NotFound(new { error = "User not found" });
             }
-            var response = await BuildPendingReviewsResponse(prs);
+            
+            // Get their access token from wherever it's stored (you may need to adjust this)
+            var token = HttpContext.Request.Headers["Authorization"].FirstOrDefault()?.Replace("Bearer ", "");
+            if (string.IsNullOrEmpty(token))
+            {
+                return Unauthorized(new { error = "No access token provided. Please include Authorization header with Bearer token." });
+            }
+            
+            // Call GitHub API directly to get PRs where user is requested as reviewer
+            var githubService = HttpContext.RequestServices.GetRequiredService<IGitHubService>();
+            var githubPRs = await githubService.GetPendingReviewsForUser(token);
+            
+            // Take only the requested limit
+            var limitedPRs = githubPRs.Take(limit).ToList();
+            
+            // Transform to response format
+            var response = limitedPRs.Select(pr => new
+            {
+                prId = (Guid?)null, // GitHub Issues don't have our internal ID
+                prNumber = pr.Number,
+                title = pr.Title,
+                authorLogin = pr.User?.Login ?? "Unknown",
+                repositoryName = ExtractRepoName(pr.HtmlUrl),
+                ownerUsername = ExtractOwner(pr.HtmlUrl),
+                url = pr.HtmlUrl
+            }).ToList();
+            
             return Ok(response);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get pending reviews for user {UserId}", userId);
-            return StatusCode(500, new { error = "Failed to load pending reviews" });
+            return StatusCode(500, new { error = "Failed to load pending reviews", details = ex.Message });
+        }
+    }
+    
+    // Helper methods to extract owner and repo from GitHub URL
+    private string ExtractOwner(string htmlUrl)
+    {
+        try
+        {
+            var uri = new Uri(htmlUrl);
+            var parts = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length > 0 ? parts[0] : "Unknown";
+        }
+        catch
+        {
+            return "Unknown";
+        }
+    }
+    
+    private string ExtractRepoName(string htmlUrl)
+    {
+        try
+        {
+            var uri = new Uri(htmlUrl);
+            var parts = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length > 1 ? parts[1] : "Unknown";
+        }
+        catch
+        {
+            return "Unknown";
         }
     }
 

@@ -1,0 +1,31 @@
+    // Debug helper methods added after line 2089
+    public async Task<bool> CheckUserHasCommitsInRepo(Guid userId, Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            "SELECT EXISTS(SELECT 1 FROM commits WHERE author_user_id = @userId AND repository_id = @repositoryId)",
+            conn);
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("repositoryId", repositoryId);
+        var result = await cmd.ExecuteScalarAsync();
+        return (bool?)result ?? false;
+    }
+
+    public async Task<bool> CheckIsRequestedReviewer(Guid userId, Guid prId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        var user = await GetUserById(userId);
+        using var cmd = new NpgsqlCommand(@"
+            SELECT EXISTS(
+                SELECT 1 FROM pr_requested_reviewers 
+                WHERE pr_id = @prId 
+                AND (reviewer_id = @userId OR (github_user_id IS NOT NULL AND github_user_id = @githubUserId))
+            )",
+            conn);
+        cmd.Parameters.AddWithValue("prId", prId);
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("githubUserId", (object?)user?.GithubId ?? DBNull.Value);
+        var result = await cmd.ExecuteScalarAsync();
+        return (bool?)result ?? false;
+    }
+}

@@ -129,6 +129,10 @@ public interface IDatabaseService
     Task<List<PullRequest>> GetPendingReviews(Guid userId, int limit = 10);
     
     // Debug helpers
+    Task<bool> CheckUserHasCommitsInRepo(Guid userId, Guid repositoryId);
+    Task<bool> CheckIsRequestedReviewer(Guid userId, Guid prId);
+    
+    // Debug helpers
     Task<List<PullRequest>> GetAllOpenPrs();
     Task<bool> CheckUserRepositoryAccess(Guid userId, Guid repositoryId);
     Task<bool> HasUserReviewedPr(Guid userId, Guid prId);

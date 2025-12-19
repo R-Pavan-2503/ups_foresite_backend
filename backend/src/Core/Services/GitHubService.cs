@@ -333,6 +333,26 @@ public class GitHubService : IGitHubService
             return await client.PullRequest.Review.GetAll(owner, repo, prNumber);
         }
     }
+    
+    // Search for PRs where user is requested as reviewer
+    public async Task<List<Octokit.Issue>> GetPendingReviewsForUser(string accessToken)
+    {
+        var client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+        {
+            Credentials = new Credentials(accessToken)
+        };
+        
+        // Use GitHub's search API with raw query string
+        // Query: "is:pr is:open review-requested:@me"
+        var searchRequest = new SearchIssuesRequest("is:pr is:open review-requested:@me")
+        {
+            Type = IssueTypeQualifier.PullRequest,
+            State = ItemState.Open
+        };
+        
+        var searchResult = await client.Search.SearchIssues(searchRequest);
+        return searchResult.Items.ToList();
+    }
 
     // Webhooks
     public async Task<RepositoryHook> CreateWebhook(string owner, string repo, string webhookUrl, string secret)
