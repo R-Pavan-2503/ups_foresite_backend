@@ -778,6 +778,16 @@ public class AnalysisService : IAnalysisService
                             }
                         }
 
+                        // ✨ NEW: Sync PR merged status from GitHub
+                        var githubMerged = pr.Merged;
+                        var githubMergedAt = pr.MergedAt?.UtcDateTime;
+                        
+                        if (existing.Merged != githubMerged || existing.MergedAt != githubMergedAt)
+                        {
+                            await _db.UpdatePullRequestMergedStatus(existing.Id, githubMerged, githubMergedAt);
+                            _logger.LogInformation($"   ✅ Updated PR #{pr.Number} merged status: {githubMerged}");
+                        }
+
                         // SAFE: Sync requested reviewers for EXISTING open PRs too
                         if (pr.State.StringValue.Equals("open", StringComparison.OrdinalIgnoreCase))
                         {
@@ -838,7 +848,9 @@ public class AnalysisService : IAnalysisService
                         PrNumber = pr.Number,
                         Title = pr.Title,
                         State = pr.State.StringValue,
-                        AuthorId = author.Id
+                        AuthorId = author.Id,
+                        Merged = pr.Merged,
+                        MergedAt = pr.MergedAt?.UtcDateTime
                     });
 
                     // Fetch and store PR file changes ONLY for open PRs
@@ -1342,6 +1354,7 @@ public class AnalysisService : IAnalysisService
         if (embeddings1.Count == 0 || embeddings2.Count == 0) return 0;
         var e1 = embeddings1[^1].Embedding;
         var e2 = embeddings2[^1].Embedding;
+        if (e1 == null || e2 == null) return 0;
         double dot = 0, norm1 = 0, norm2 = 0;
         for (int i = 0; i < Math.Min(e1.Length, e2.Length); i++)
         {

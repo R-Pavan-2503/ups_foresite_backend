@@ -89,6 +89,7 @@ public interface IDatabaseService
     Task<List<PullRequest>> GetAllPullRequests(Guid repositoryId);
     Task UpdatePullRequestState(Guid prId, string state);
     Task UpdatePullRequestTitle(Guid prId, string title);
+    Task UpdatePullRequestMergedStatus(Guid prId, bool merged, DateTime? mergedAt);
     Task DeletePrFilesChangedByPrId(Guid prId);  // NEW: Clean up files for specific PR
 
     // PR Files

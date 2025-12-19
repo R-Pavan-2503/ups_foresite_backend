@@ -1223,7 +1223,7 @@ public class DatabaseService : IDatabaseService
         await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
-            "SELECT id, repository_id, pr_number, title, state, author_id FROM pull_requests WHERE repository_id = @repoId AND pr_number = @prNumber",
+            "SELECT id, repository_id, pr_number, title, state, author_id, merged, merged_at FROM pull_requests WHERE repository_id = @repoId AND pr_number = @prNumber",
             conn);
 
         cmd.Parameters.AddWithValue("repoId", repositoryId);
@@ -1239,7 +1239,9 @@ public class DatabaseService : IDatabaseService
                 PrNumber = reader.GetInt32(2),
                 Title = reader.IsDBNull(3) ? null : reader.GetString(3),
                 State = reader.IsDBNull(4) ? null : reader.GetString(4),
-                AuthorId = reader.IsDBNull(5) ? null : reader.GetGuid(5)
+                AuthorId = reader.IsDBNull(5) ? null : reader.GetGuid(5),
+                Merged = reader.IsDBNull(6) ? false : reader.GetBoolean(6),
+                MergedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7)
             };
         }
         return null;
@@ -1250,7 +1252,7 @@ public class DatabaseService : IDatabaseService
         await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
-            "INSERT INTO pull_requests (repository_id, pr_number, title, state, author_id) VALUES (@repoId, @prNumber, @title, @state, @authorId) RETURNING id",
+            "INSERT INTO pull_requests (repository_id, pr_number, title, state, author_id, merged, merged_at) VALUES (@repoId, @prNumber, @title, @state, @authorId, @merged, @mergedAt) RETURNING id",
             conn);
 
         cmd.Parameters.AddWithValue("repoId", pr.RepositoryId);
@@ -1258,6 +1260,8 @@ public class DatabaseService : IDatabaseService
         cmd.Parameters.AddWithValue("title", (object?)pr.Title ?? DBNull.Value);
         cmd.Parameters.AddWithValue("state", (object?)pr.State ?? DBNull.Value);
         cmd.Parameters.AddWithValue("authorId", (object?)pr.AuthorId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("merged", pr.Merged);
+        cmd.Parameters.AddWithValue("mergedAt", (object?)pr.MergedAt ?? DBNull.Value);
 
         pr.Id = (Guid)(await cmd.ExecuteScalarAsync())!;
         return pr;
@@ -1294,7 +1298,7 @@ public class DatabaseService : IDatabaseService
         await using var conn = await _dataSource.OpenConnectionAsync();
 
         using var cmd = new NpgsqlCommand(
-            "SELECT id, repository_id, pr_number, title, state, author_id FROM pull_requests WHERE repository_id = @repoId ORDER BY pr_number DESC",
+            "SELECT id, repository_id, pr_number, title, state, author_id, merged, merged_at FROM pull_requests WHERE repository_id = @repoId ORDER BY pr_number DESC",
             conn);
 
         cmd.Parameters.AddWithValue("repoId", repositoryId);
@@ -1310,7 +1314,9 @@ public class DatabaseService : IDatabaseService
                 PrNumber = reader.GetInt32(2),
                 Title = reader.IsDBNull(3) ? null : reader.GetString(3),
                 State = reader.IsDBNull(4) ? null : reader.GetString(4),
-                AuthorId = reader.IsDBNull(5) ? null : reader.GetGuid(5)
+                AuthorId = reader.IsDBNull(5) ? null : reader.GetGuid(5),
+                Merged = reader.IsDBNull(6) ? false : reader.GetBoolean(6),
+                MergedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7)
             });
         }
         return prs;
@@ -1337,6 +1343,19 @@ public class DatabaseService : IDatabaseService
 
         await cmd.ExecuteNonQueryAsync();
     }
+
+    public async Task UpdatePullRequestMergedStatus(Guid prId, bool merged, DateTime? mergedAt)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand("UPDATE pull_requests SET merged = @merged, merged_at = @mergedAt WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("merged", merged);
+        cmd.Parameters.AddWithValue("mergedAt", (object?)mergedAt ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("id", prId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
 
     public async Task DeletePrFilesChangedByPrId(Guid prId)
     {

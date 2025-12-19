@@ -101,6 +101,8 @@ public class PullRequest
     public string? Title { get; set; }
     public string? State { get; set; }
     public Guid? AuthorId { get; set; }
+    public bool Merged { get; set; }
+    public DateTime? MergedAt { get; set; }
 }
 
 public class PrFileChanged
