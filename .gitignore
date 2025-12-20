@@ -97,6 +97,7 @@ debug.log
 *.swp
 *.swo
 
+
 ##############################
 # IDE / TOOLING
 ##############################
@@ -111,3 +112,16 @@ debug.log
 # Rider
 .ReSharper*/
 *_ReSharper*/
+
+##############################
+# DOCKER (with secrets)
+##############################
+
+# Docker Compose with secrets (keep private, share separately with team)
+docker-compose.yml
+
+# Docker environment files
+.env.docker
+
+# Allow example template in Git
+!docker-compose.example.yml
