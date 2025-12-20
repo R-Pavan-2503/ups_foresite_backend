@@ -110,6 +110,7 @@ public interface IDatabaseService
     // File Views (Recent Files)
     Task<List<FileView>> GetRecentFileViews(Guid userId, int limit = 10);
     Task UpsertFileView(Guid userId, Guid fileId);
+    Task ClearUserFileViews(Guid userId);
     
     // File Bookmarks
     Task<List<FileBookmark>> GetFileBookmarks(Guid userId);
