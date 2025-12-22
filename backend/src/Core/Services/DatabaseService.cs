@@ -1724,6 +1724,19 @@ public class DatabaseService : IDatabaseService
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task ClearUserFileViews(Guid userId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "DELETE FROM file_views WHERE user_id = @userId",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task<List<FileBookmark>> GetFileBookmarks(Guid userId)
     {
         await using var conn = await _dataSource.OpenConnectionAsync();

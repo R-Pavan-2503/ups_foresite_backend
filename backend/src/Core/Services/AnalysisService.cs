@@ -243,7 +243,7 @@ public class AnalysisService : IAnalysisService
     // Helper: Get or create a user record for an author
     // Email-first approach: Only call GitHub API for unknown emails
     // ---------------------------------------------------------------------
-    private async Task<User> GetOrCreateAuthorUser(
+    public async Task<User> GetOrCreateAuthorUser(
         string email,
         string username,
         string repoOwner,
@@ -395,7 +395,7 @@ public class AnalysisService : IAnalysisService
     // ---------------------------------------------------------------------
     // Process a single file at a specific commit
     // ---------------------------------------------------------------------
-    private async Task ProcessFile(
+    public async Task ProcessFile(
         LibGitRepository repo,
         DbCommit commit,
         LibGitCommit gitCommit,
@@ -542,6 +542,27 @@ public class AnalysisService : IAnalysisService
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Calculate ownership only for files that were modified (for incremental refresh)
+    // ---------------------------------------------------------------------
+    public async Task CalculateOwnershipForModifiedFiles(Guid repositoryId)
+    {
+        // Only calculate for files that have deltas tracked in this session
+        foreach (var fileId in _fileAuthorDeltas.Keys)
+        {
+            await CalculateSemanticOwnership(fileId, repositoryId);
+        }
+        _logger.LogInformation($"✅ Calculated ownership for {_fileAuthorDeltas.Count} modified files");
+    }
+
+    // ---------------------------------------------------------------------
+    // Clear file author deltas tracker (call at start of refresh)
+    // ---------------------------------------------------------------------
+    public void ClearFileAuthorDeltas()
+    {
+        _fileAuthorDeltas.Clear();
+    }
+
     public async Task CalculateSemanticOwnership(Guid fileId, Guid repositoryId)
     {
         if (!_fileAuthorDeltas.ContainsKey(fileId)) return;
@@ -577,9 +598,9 @@ public class AnalysisService : IAnalysisService
     }
 
     // ---------------------------------------------------------------------
-    // Dependency graph metrics (blast radius etc.)
+    //Dependency graph metrics (blast radius etc.)
     // ---------------------------------------------------------------------
-    private async Task CalculateDependencyMetrics(Guid repositoryId)
+    public async Task CalculateDependencyMetrics(Guid repositoryId)
     {
         var files = await _db.GetFilesByRepository(repositoryId);
         foreach (var file in files)
@@ -597,7 +618,7 @@ public class AnalysisService : IAnalysisService
     // Reconcile dependencies at HEAD - catch any missing dependencies
     // where target files were added after their importers
     // ---------------------------------------------------------------------
-    private async Task ReconcileDependenciesAtHead(LibGitRepository repo, Guid repositoryId)
+    public async Task ReconcileDependenciesAtHead(LibGitRepository repo, Guid repositoryId)
     {
         var headCommit = repo.Head.Tip;
         if (headCommit == null)
@@ -671,7 +692,7 @@ public class AnalysisService : IAnalysisService
     // Ensure ALL files in the repository at HEAD are in the database
     // This ensures the file tree shows ALL files, not just those in commits
     // ---------------------------------------------------------------------
-    private async Task EnsureAllFilesAtHead(LibGitRepository repo, Guid repositoryId)
+    public async Task EnsureAllFilesAtHead(LibGitRepository repo, Guid repositoryId)
     {
         var allFilePaths = _repoService.GetAllFilesAtHead(repo);
         _logger.LogInformation($"📂 Found {allFilePaths.Count} total files in repository at HEAD");
@@ -721,7 +742,7 @@ public class AnalysisService : IAnalysisService
     // ---------------------------------------------------------------------
     // Fetch and store pull requests from GitHub API
     // ---------------------------------------------------------------------
-    private async Task FetchAndStorePullRequests(string owner, string repo, Guid repositoryId, string? accessToken = null)
+    public async Task FetchAndStorePullRequests(string owner, string repo, Guid repositoryId, string? accessToken = null)
     {
         try
         {
@@ -1438,30 +1459,57 @@ public class AnalysisService : IAnalysisService
                 return;
             }
 
+            // Get or create commit with PROPER author information
             var commit = await _db.GetCommitBySha(repositoryId, commitSha);
             if (commit == null)
             {
+                // Get author info from Git commit
+                var authorEmail = gitCommit.Author.Email ?? "unknown@example.com";
+                var authorName = gitCommit.Author.Name ?? "unknown";
+
+                // Get or create user (same logic as AnalyzeRepository)
+                var authorUser = await GetOrCreateAuthorUser(
+                    authorEmail,
+                    authorName,
+                    repository.OwnerUsername,
+                    repository.Name,
+                    gitCommit.Sha,
+                    repositoryId
+                );
+
+                // NEVER store noreply emails - use user's email or null
+                var commitEmail = authorUser.Email;
+                if (string.IsNullOrWhiteSpace(commitEmail) &&
+                    !string.IsNullOrWhiteSpace(authorEmail) &&
+                    !authorEmail.Contains("@users.noreply.github.com"))
+                {
+                    commitEmail = authorEmail; // Only use real emails
+                }
+
                 commit = await _db.CreateCommit(new DbCommit
                 {
                     RepositoryId = repositoryId,
                     Sha = commitSha,
                     Message = gitCommit.MessageShort,
+                    AuthorName = authorUser.AuthorName,
+                    AuthorEmail = commitEmail,
+                    AuthorUserId = authorUser.Id,
                     CommittedAt = gitCommit.Author.When.UtcDateTime
                 });
+
+                _logger.LogInformation($"  ✅ Created commit with author: {authorUser.AuthorName}");
             }
+
+            // Now process files with proper author info
             foreach (var filePath in changedFiles)
             {
-                // For incremental updates we don't have author info – use commit author if available
-                var placeholderEmail = commit.AuthorEmail ?? "incremental@update.com";
-                var placeholderUserId = commit.AuthorUserId ?? Guid.Empty;
-
-                if (placeholderUserId == Guid.Empty)
+                if (commit.AuthorUserId == null || commit.AuthorUserId == Guid.Empty)
                 {
-                    _logger.LogWarning($"⚠️ No author for incremental update, skipping file {filePath}");
+                    _logger.LogWarning($"  ⚠️ No author for incremental update, skipping file {filePath}");
                     continue;
                 }
 
-                await ProcessFile(repo, commit, gitCommit, filePath, placeholderUserId, placeholderEmail);
+                await ProcessFile(repo, commit, gitCommit, filePath, commit.AuthorUserId.Value, commit.AuthorEmail ?? "");
             }
             _logger.LogInformation($"Incremental update complete for {changedFiles.Count} files");
         }

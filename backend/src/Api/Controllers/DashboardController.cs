@@ -88,6 +88,24 @@ public class DashboardController : ControllerBase
     }
 
     /// <summary>
+    /// Clear all recent files for a user
+    /// </summary>
+    [HttpDelete("{userId}/recent-files")]
+    public async Task<IActionResult> ClearRecentFiles(Guid userId)
+    {
+        try
+        {
+            await _db.ClearUserFileViews(userId);
+            return Ok(new { success = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear recent files for user {UserId}", userId);
+            return StatusCode(500, new { error = "Failed to clear recent files" });
+        }
+    }
+
+    /// <summary>
     /// Track a file view
     /// </summary>
     [HttpPost("file-view")]

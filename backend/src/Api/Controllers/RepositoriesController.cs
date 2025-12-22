@@ -197,17 +197,18 @@ public class RepositoriesController : ControllerBase
             accessToken = authorization.Substring("Bearer ".Length).Trim();
         }
 
-        // Edge case: Ensure bare clone exists (in case it was deleted)
-        // This happens when user has database access but no local clone
+        // Ensure bare clone exists and is up-to-date
+        // This will clone if missing, or fetch latest changes if exists
         var cloneUrl = $"https://github.com/{repository.OwnerUsername}/{repository.Name}.git";
         try
         {
+            _logger.LogInformation($"📥 Ensuring latest code is available for {repository.OwnerUsername}/{repository.Name}");
             await _repoService.CloneBareRepository(cloneUrl, repository.OwnerUsername, repository.Name, accessToken);
-            _logger.LogInformation($"✓ Verified bare clone exists for {repository.OwnerUsername}/{repository.Name}");
+            _logger.LogInformation($"✓ Repository {repository.OwnerUsername}/{repository.Name} is up-to-date");
         }
         catch (Exception ex)
         {
-            _logger.LogWarning($"⚠ Could not ensure bare clone: {ex.Message}");
+            _logger.LogWarning($"⚠ Could not update bare clone: {ex.Message}");
             // Don't fail the request - proceed anyway
         }
 
