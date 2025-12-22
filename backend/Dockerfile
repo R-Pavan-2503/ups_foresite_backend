@@ -44,7 +44,7 @@ COPY --from=build /app/publish .
 COPY settings.json /app/settings.json
 
 # Create directories for runtime data
-RUN mkdir -p /app/repos /app/testdata
+RUN mkdir -p /app/repos /app/testdata/repos
 
 # Environment variables with defaults
 ENV ASPNETCORE_ENVIRONMENT=Production \
