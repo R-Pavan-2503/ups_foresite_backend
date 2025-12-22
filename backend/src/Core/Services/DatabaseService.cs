@@ -336,6 +336,14 @@ public class DatabaseService : IDatabaseService
         return null;
     }
 
+    public async Task DeleteRepository(Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand("DELETE FROM repositories WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("id", repositoryId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task<List<Repository>> GetAnalyzedRepositories(Guid userId, string filter)
     {
         await using var conn = await _dataSource.OpenConnectionAsync();
@@ -349,7 +357,7 @@ public class DatabaseService : IDatabaseService
                           FROM repositories r
                           INNER JOIN repository_user_access rua ON r.id = rua.repository_id
                           WHERE rua.user_id = @userId AND r.is_mine = TRUE AND (r.status = 'ready' OR r.status = 'analyzing' OR r.status = 'pending')
-                          ORDER BY r.name";
+                          ORDER BY rua.granted_at DESC";
                 break;
             case "others":
                 // Show repositories that DON'T belong to the user (is_mine = FALSE)
@@ -357,7 +365,7 @@ public class DatabaseService : IDatabaseService
                           FROM repositories r
                           INNER JOIN repository_user_access rua ON r.id = rua.repository_id
                           WHERE rua.user_id = @userId AND r.is_mine = FALSE AND (r.status = 'ready' OR r.status = 'analyzing' OR r.status = 'pending')
-                          ORDER BY r.name";
+                          ORDER BY rua.granted_at DESC";
                 break;
             case "all":
             default:
@@ -366,7 +374,7 @@ public class DatabaseService : IDatabaseService
                           FROM repositories r
                           INNER JOIN repository_user_access rua ON r.id = rua.repository_id
                           WHERE rua.user_id = @userId AND (r.status = 'ready' OR r.status = 'analyzing' OR r.status = 'pending')
-                          ORDER BY r.name";
+                          ORDER BY rua.granted_at DESC";
                 break;
         }
 
