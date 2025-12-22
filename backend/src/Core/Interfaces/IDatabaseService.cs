@@ -24,6 +24,8 @@ public interface IDatabaseService
     Task<List<Repository>> GetUserRepositories(Guid userId);
     Task<Repository?> GetRepositoryById(Guid id);
     Task<List<Repository>> GetAnalyzedRepositories(Guid userId, string filter);
+    Task DeleteRepository(Guid repositoryId);
+
 
     // Repository User Access
     Task<bool> HasRepositoryAccess(Guid userId, Guid repositoryId);

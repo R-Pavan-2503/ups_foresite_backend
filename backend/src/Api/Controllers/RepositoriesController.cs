@@ -54,7 +54,8 @@ public class RepositoriesController : ControllerBase
                 gr.Private,  // Added for filtering support
                 gr.Permissions,  // Added for contributor filtering
                 Analyzed = analyzedRepos.Any(ar => ar.Name == gr.Name && ar.OwnerUsername == gr.Owner.Login),
-                Status = analyzedRepos.FirstOrDefault(ar => ar.Name == gr.Name && ar.OwnerUsername == gr.Owner.Login)?.Status
+                Status = analyzedRepos.FirstOrDefault(ar => ar.Name == gr.Name && ar.OwnerUsername == gr.Owner.Login)?.Status,
+                AnalyzedRepositoryId = analyzedRepos.FirstOrDefault(ar => ar.Name == gr.Name && ar.OwnerUsername == gr.Owner.Login)?.Id
             });
 
             return Ok(result);
@@ -213,6 +214,23 @@ public class RepositoriesController : ControllerBase
         }
 
         return Ok(repository);
+    }
+
+    [HttpDelete("{repositoryId}")]
+    public async Task<IActionResult> DeleteRepository(Guid repositoryId)
+    {
+        try
+        {
+            var repository = await _db.GetRepositoryById(repositoryId);
+            if (repository == null) return NotFound(new { error = "Repository not found" });
+
+            await _db.DeleteRepository(repositoryId);
+            return Ok(new { message = "Repository deleted successfully" });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
     [HttpGet("{owner}/{repo}/status")]
