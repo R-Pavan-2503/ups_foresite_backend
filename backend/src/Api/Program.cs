@@ -7,11 +7,20 @@ using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Load environment variables
-DotNetEnv.Env.Load(Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", ".env"));
+// Load environment variables from .env file if it exists
+var envPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", ".env");
+if (File.Exists(envPath))
+{
+    DotNetEnv.Env.Load(envPath);
+    Console.WriteLine("✓ Loaded .env file");
+}
+else
+{
+    Console.WriteLine("⚠ .env file not found, using environment variables from system");
+}
 
 // Load settings from settings.json in root directory
-var settingsPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", "settings.json");
+var settingsPath = Path.Combine(Directory.GetCurrentDirectory(),  "..", "..", "settings.json");
 if (File.Exists(settingsPath))
 {
     var jsonContent = File.ReadAllText(settingsPath);
@@ -46,12 +55,16 @@ builder.Services.AddMiniProfiler(options =>
     options.EnableDebugMode = true; // Show more details in dev
 });
 
-// Add CORS
+// Add CORS with configurable origins
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
+        var allowedOrigins = Environment.GetEnvironmentVariable("ALLOWED_ORIGINS")
+            ?.Split(',')
+            ?? new[] { "http://localhost:5173" };
+        
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -118,7 +131,8 @@ app.MapControllers();
 // Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
-app.Logger.LogInformation("CodeFamily API starting on port 5000");
+var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
+app.Logger.LogInformation($"CodeFamily API starting on port {port}");
 app.Logger.LogInformation("Ensure your GitHub App private key is placed at /secrets/codefamily.pem");
 
-app.Run("http://localhost:5000");
+app.Run($"http://0.0.0.0:{port}");
