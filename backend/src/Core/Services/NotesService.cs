@@ -390,7 +390,7 @@ public class NotesService : INotesService
             {
                 await _notificationService.CreateMentionNotificationAsync(
                     mentionedUserId, userId, user?.AuthorName ?? "Someone",
-                    fileId, repositoryId, $"/files/{fileId}?tab=notes");
+                    fileId, repositoryId, $"/file/{fileId}?tab=notes");
             }
         }
 
@@ -886,7 +886,7 @@ public class NotesService : INotesService
             {
                 await _notificationService.CreateMentionNotificationAsync(
                     mentionedUserId, userId, user?.AuthorName ?? "Someone",
-                    null, repositoryId, $"/repository/{repositoryId}?tab=notes");
+                    null, repositoryId, $"/repo/{repositoryId}?tab=notes");
             }
         }
 

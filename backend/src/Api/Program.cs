@@ -19,8 +19,8 @@ else
     Console.WriteLine("⚠ .env file not found, using environment variables from system");
 }
 
-// Load settings from settings.json in root directory
-var settingsPath = Path.Combine(Directory.GetCurrentDirectory(),  "..", "..", "settings.json");
+// Load settings from settings.json in current directory (works in Docker)
+var settingsPath = Path.Combine(Directory.GetCurrentDirectory(), "settings.json");
 if (File.Exists(settingsPath))
 {
     var jsonContent = File.ReadAllText(settingsPath);
