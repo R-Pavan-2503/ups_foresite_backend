@@ -61,33 +61,45 @@ public class FilesController : ControllerBase
             }
         }
 
-        // Get dependency file details
+        // OPTIMIZED: Get dependency file details in batch
         var dependencyDetails = new List<object>();
-        foreach (var dep in dependencies)
+        if (dependencies.Any())
         {
-            var targetFile = await _db.GetFileById(dep.TargetFileId);
-            if (targetFile != null)
+            var depFileIds = dependencies.Select(d => d.TargetFileId).ToList();
+            var depFiles = await _db.GetFilesByIds(depFileIds);
+            var depFilesDict = depFiles.ToDictionary(f => f.Id);
+
+            foreach (var dep in dependencies)
             {
-                dependencyDetails.Add(new
+                if (depFilesDict.TryGetValue(dep.TargetFileId, out var targetFile))
                 {
-                    filePath = targetFile.FilePath,
-                    dependencyType = dep.DependencyType,
-                    strength = dep.Strength
-                });
+                    dependencyDetails.Add(new
+                    {
+                        filePath = targetFile.FilePath,
+                        dependencyType = dep.DependencyType,
+                        strength = dep.Strength
+                    });
+                }
             }
         }
 
-        // Get dependent file details
+        // OPTIMIZED: Get dependent file details in batch
         var dependentDetails = new List<object>();
-        foreach (var dep in dependents)
+        if (dependents.Any())
         {
-            var sourceFile = await _db.GetFileById(dep.SourceFileId);
-            if (sourceFile != null)
+            var depFileIds = dependents.Select(d => d.SourceFileId).ToList();
+            var depFiles = await _db.GetFilesByIds(depFileIds);
+            var depFilesDict = depFiles.ToDictionary(f => f.Id);
+
+            foreach (var dep in dependents)
             {
-                dependentDetails.Add(new
+                if (depFilesDict.TryGetValue(dep.SourceFileId, out var sourceFile))
                 {
-                    filePath = sourceFile.FilePath
-                });
+                    dependentDetails.Add(new
+                    {
+                        filePath = sourceFile.FilePath
+                    });
+                }
             }
         }
 
@@ -100,9 +112,14 @@ public class FilesController : ControllerBase
             .Where(o => o.SemanticScore.HasValue)
             .Sum(o => (double)o.SemanticScore.Value);
 
+        // OPTIMIZED: Get all users in batch
+        var authorNames = ownership.Select(o => o.AuthorName).ToList();
+        var users = await _db.GetUsersByAuthorNames(authorNames);
+        var usersDict = users.ToDictionary(u => u.AuthorName);
+
         foreach (var own in ownership)
         {
-            var user = await _db.GetUserByAuthorName(own.AuthorName);
+            usersDict.TryGetValue(own.AuthorName, out var user);
 
             // Normalize the score: divide by total so all scores sum to 1.0 (100%)
             var normalizedScore = 0.0;
@@ -130,10 +147,20 @@ public class FilesController : ControllerBase
             // Aggregate contributions by author from file changes
             var authorContributions = new Dictionary<string, (int additions, int deletions, User? user)>();
 
+            // OPTIMIZED: Get all commits and users in batch
+            var commitIds = changes.Select(c => c.CommitId).ToList();
+            var commits = await _db.GetCommitsByIds(commitIds);
+            var commitsDict = commits.ToDictionary(c => c.Id);
+
+            // Collect all author names first
+            var allAuthorNames = commits.Where(c => !string.IsNullOrEmpty(c.AuthorName)).Select(c => c.AuthorName!).Distinct().ToList();
+            var allUsers = await _db.GetUsersByAuthorNames(allAuthorNames);
+            var fallbackUsersDict = allUsers.ToDictionary(u => u.AuthorName);
+
             foreach (var change in changes)
             {
-                var commit = await _db.GetCommitById(change.CommitId);
-                if (commit == null || string.IsNullOrEmpty(commit.AuthorName)) continue;
+                if (!commitsDict.TryGetValue(change.CommitId, out var commit)) continue;
+                if (string.IsNullOrEmpty(commit.AuthorName)) continue;
 
                 var authorName = commit.AuthorName;
                 var additions = change.Additions ?? 0;
@@ -141,7 +168,7 @@ public class FilesController : ControllerBase
 
                 if (!authorContributions.ContainsKey(authorName))
                 {
-                    var user = await _db.GetUserByAuthorName(authorName);
+                    fallbackUsersDict.TryGetValue(authorName, out var user);
                     authorContributions[authorName] = (additions, deletions, user);
                 }
                 else
@@ -181,6 +208,7 @@ public class FilesController : ControllerBase
         return Ok(new
         {
             id = file.Id,
+            repositoryId = file.RepositoryId,
             filePath = file.FilePath,
             totalLines = file.TotalLines,
             purpose = "Semantic summary will be generated from embeddings", // TODO: Generate from embeddings
@@ -202,18 +230,13 @@ public class FilesController : ControllerBase
             var changes = await _db.GetFileChangesByFile(fileId);
             if (!changes.Any()) return null;
 
-            // Get the most recent commit that modified this file
+            // OPTIMIZED: Get all commits at once
             var commitIds = changes.Select(c => c.CommitId).ToList();
-            DateTime? latestDate = null;
-
-            foreach (var commitId in commitIds)
-            {
-                var commit = await _db.GetCommitById(commitId);
-                if (commit != null && (latestDate == null || commit.CommittedAt > latestDate))
-                {
-                    latestDate = commit.CommittedAt;
-                }
-            }
+            var commits = await _db.GetCommitsByIds(commitIds);
+            
+            var latestDate = commits.Any() 
+                ? commits.Max(c => c.CommittedAt) 
+                : (DateTime?)null;
 
             return latestDate;
         }
@@ -394,4 +417,43 @@ public class FilesController : ControllerBase
             });
         }
     }
+
+    // Get branches that contain a specific file
+    [HttpGet("{fileId}/branches")]
+    public async Task<IActionResult> GetFileBranches(Guid fileId)
+    {
+        try
+        {
+            var file = await _db.GetFileById(fileId);
+            if (file == null) return NotFound(new { error = "File not found" });
+
+            var repository = await _db.GetRepositoryById(file.RepositoryId);
+            if (repository == null) return NotFound(new { error = "Repository not found" });
+
+            // Get all branches for this repository
+            var branches = await _db.GetBranchesByRepository(file.RepositoryId);
+            var branchesWithFile = new List<string>();
+
+            // Check each branch to see if it contains this file
+            foreach (var branch in branches)
+            {
+                // Get files for this branch
+                var filesInBranch = await _db.GetFilesByBranch(file.RepositoryId, branch.Name);
+                
+                // Check if our file exists in this branch
+                if (filesInBranch.Any(f => f.FilePath == file.FilePath))
+                {
+                    branchesWithFile.Add(branch.Name);
+                }
+            }
+
+            return Ok(branchesWithFile);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error getting branches for file: {ex.Message}");
+            return StatusCode(500, new { error = "Failed to retrieve file branches" });
+        }
+    }
 }
+

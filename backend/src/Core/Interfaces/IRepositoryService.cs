@@ -6,6 +6,7 @@ public interface IRepositoryService
 {
     /// <summary>
     /// Clone a repository as a bare clone for efficient access.
+    /// If the repository already exists, fetches the latest changes from remote.
     /// Returns the path to the bare repository.
     /// </summary>
     /// <param name="accessToken">Optional GitHub access token for private repositories</param>

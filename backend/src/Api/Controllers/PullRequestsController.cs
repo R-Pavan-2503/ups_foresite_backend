@@ -78,25 +78,45 @@ public class PullRequestsController : ControllerBase
                     var prFiles = await _db.GetPrFiles(dbPr.Id);
                     var authorTotals = new Dictionary<string, (decimal score, int fileCount, string? avatarUrl, string? email)>();
 
+                    // OPTIMIZED: Get ownership and users in batch
+                    var fileIds = prFiles.Select(f => f.Id).ToList();
+                    var ownershipDict = await _db.GetFileOwnershipByFileIds(fileIds);
+
+                    // Collect all author names
+                    var allAuthorNames = new HashSet<string>();
+                    foreach (var ownershipList in ownershipDict.Values)
+                    {
+                        foreach (var ownershipRecord in ownershipList)
+                        {
+                            allAuthorNames.Add(ownershipRecord.AuthorName);
+                        }
+                    }
+
+                    // Get all users at once
+                    var users = await _db.GetUsersByAuthorNames(allAuthorNames.ToList());
+                    var usersDict = users.ToDictionary(u => u.AuthorName);
+
+                    // Calculate scores from ownership data
                     foreach (var file in prFiles)
                     {
-                        var ownership = await _db.GetFileOwnership(file.Id);
-                        foreach (var ownerRecord in ownership)
+                        if (ownershipDict.TryGetValue(file.Id, out var ownership))
                         {
-                            if (!authorTotals.ContainsKey(ownerRecord.AuthorName))
+                            foreach (var ownerRecord in ownership)
                             {
-                                // Get user details
-                                var user = await _db.GetUserByAuthorName(ownerRecord.AuthorName);
-                                authorTotals[ownerRecord.AuthorName] = (0m, 0, user?.AvatarUrl, user?.Email);
-                            }
+                                if (!authorTotals.ContainsKey(ownerRecord.AuthorName))
+                                {
+                                    usersDict.TryGetValue(ownerRecord.AuthorName, out var user);
+                                    authorTotals[ownerRecord.AuthorName] = (0m, 0, user?.AvatarUrl, user?.Email);
+                                }
 
-                            var current = authorTotals[ownerRecord.AuthorName];
-                            authorTotals[ownerRecord.AuthorName] = (
-                                current.score + (ownerRecord.SemanticScore ?? 0m),
-                                current.fileCount + 1,
-                                current.avatarUrl,
-                                current.email
-                            );
+                                var current = authorTotals[ownerRecord.AuthorName];
+                                authorTotals[ownerRecord.AuthorName] = (
+                                    current.score + (ownerRecord.SemanticScore ?? 0m),
+                                    current.fileCount + 1,
+                                    current.avatarUrl,
+                                    current.email
+                                );
+                            }
                         }
                     }
 

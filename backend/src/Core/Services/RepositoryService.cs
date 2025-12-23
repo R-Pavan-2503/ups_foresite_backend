@@ -25,7 +25,9 @@ public class RepositoryService : IRepositoryService
 
         if (Directory.Exists(repoPath))
         {
-            return repoPath; // Already cloned
+            // Repository already exists - fetch latest changes
+            await FetchRepository(owner, repoName, accessToken);
+            return repoPath;
         }
 
         await Task.Run(() =>

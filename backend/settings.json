@@ -1,7 +1,4 @@
 {
-    "ConnectionStrings": {
-        "DefaultConnection": "${CONNECTION_STRING}"
-    },
     "GitHub": {
         "AppId": "2322543",
         "ClientId": "${GITHUB_CLIENT_ID}",
@@ -33,7 +30,7 @@
         "BotToken": "${SLACK_BOT_TOKEN}"
     },
     "Sidecar": {
-        "Url": "http://localhost:3002"
+        "Url": "${SIDECAR_URL}"
     },
     "WebhookUrl": "https://conflagrant-alleen-balletic.ngrok-free.dev",
     "CloneBasePath": "./testdata/repos"

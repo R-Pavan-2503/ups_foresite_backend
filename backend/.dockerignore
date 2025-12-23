@@ -1,0 +1,73 @@
+# .dockerignore for .NET Backend
+
+# Build outputs
+bin/
+obj/
+**/bin/
+**/obj/
+
+# .NET user files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build artifacts
+*.dll
+*.exe
+*.pdb
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+
+# Test coverage
+coverage/
+
+# Environment files (IMPORTANT: exclude from image)
+.env
+.env.*
+!.env.example
+
+# Secrets
+secrets/
+*.pem
+*.key
+
+# Runtime data (will be mounted as volumes)
+repos/
+testdata/
+src/Api/repos/
+src/Api/testdata/
+*.db
+*.sqlite
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Documentation
+*.md
+!README.md
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml

@@ -13,6 +13,7 @@ public interface IDatabaseService
     Task UpdateUserEmail(Guid userId, string email);
     Task UpdateUserAuthorName(Guid userId, string authorName);
     Task UpdateUserAvatar(Guid userId, string avatarUrl);
+    Task<List<User>> GetUsersByAuthorNames(List<string> authorNames); // BATCH: Get multiple users at once
 
     // Repositories
     Task<Repository?> GetRepositoryByName(string owner, string name);
@@ -23,6 +24,8 @@ public interface IDatabaseService
     Task<List<Repository>> GetUserRepositories(Guid userId);
     Task<Repository?> GetRepositoryById(Guid id);
     Task<List<Repository>> GetAnalyzedRepositories(Guid userId, string filter);
+    Task DeleteRepository(Guid repositoryId);
+
 
     // Repository User Access
     Task<bool> HasRepositoryAccess(Guid userId, Guid repositoryId);
@@ -47,6 +50,7 @@ public interface IDatabaseService
     Task<List<Commit>> GetCommitsByBranch(Guid repositoryId, string branchName);
     Task<Commit?> GetCommitById(Guid id);
     Task<Commit?> GetCommitBySha(Guid repositoryId, string sha);
+    Task<List<Commit>> GetCommitsByIds(List<Guid> commitIds); // BATCH: Get multiple commits at once
 
     // Files
     Task<RepositoryFile?> GetFileByPath(Guid repositoryId, string filePath);
@@ -54,12 +58,15 @@ public interface IDatabaseService
     Task<List<RepositoryFile>> GetFilesByRepository(Guid repositoryId);
     Task<List<RepositoryFile>> GetFilesByBranch(Guid repositoryId, string branchName);
     Task<RepositoryFile?> GetFileById(Guid fileId);
+    Task<List<RepositoryFile>> GetFilesByIds(List<Guid> fileIds); // BATCH: Get multiple files at once
 
     // File Changes
     Task CreateFileChange(FileChange fileChange);
     Task<List<FileChange>> GetFileChangesByCommit(Guid commitId);
     Task<List<FileChange>> GetFileChangesByFile(Guid fileId);
     Task<List<Commit>> GetCommitsForFile(Guid fileId);
+    Task<Dictionary<Guid, List<FileChange>>> GetFileChangesByFileIds(List<Guid> fileIds); // BATCH: Get changes for multiple files
+    Task<Dictionary<Guid, List<FileChange>>> GetFileChangesByCommitIds(List<Guid> commitIds); // BATCH: Get changes for multiple commits
 
     // Embeddings
     Task<CodeEmbedding> CreateEmbedding(CodeEmbedding embedding);
@@ -75,6 +82,7 @@ public interface IDatabaseService
     Task UpsertFileOwnership(FileOwnership ownership);
     Task<List<FileOwnership>> GetFileOwnership(Guid fileId);
     Task<string?> GetMostActiveAuthorForFile(Guid fileId);
+    Task<Dictionary<Guid, List<FileOwnership>>> GetFileOwnershipByFileIds(List<Guid> fileIds); // BATCH: Get ownership for multiple files
 
     // Pull Requests
     Task<PullRequest?> GetPullRequestByNumber(Guid repositoryId, int prNumber);
@@ -83,6 +91,7 @@ public interface IDatabaseService
     Task<List<PullRequest>> GetAllPullRequests(Guid repositoryId);
     Task UpdatePullRequestState(Guid prId, string state);
     Task UpdatePullRequestTitle(Guid prId, string title);
+    Task UpdatePullRequestMergedStatus(Guid prId, bool merged, DateTime? mergedAt);
     Task DeletePrFilesChangedByPrId(Guid prId);  // NEW: Clean up files for specific PR
 
     // PR Files
@@ -95,4 +104,45 @@ public interface IDatabaseService
     Task<long> EnqueueWebhook(string payload);
     Task<WebhookQueueItem?> GetNextPendingWebhook();
     Task UpdateWebhookStatus(long id, string status);
+
+    // ============================================
+    // PERSONALIZED DASHBOARD
+    // ============================================
+    
+    // File Views (Recent Files)
+    Task<List<FileView>> GetRecentFileViews(Guid userId, int limit = 10);
+    Task UpsertFileView(Guid userId, Guid fileId);
+    Task ClearUserFileViews(Guid userId);
+    
+    // File Bookmarks
+    Task<List<FileBookmark>> GetFileBookmarks(Guid userId);
+    Task<bool> IsFileBookmarked(Guid userId, Guid fileId);
+    Task CreateFileBookmark(Guid userId, Guid fileId, string? category = null);
+    Task DeleteFileBookmark(Guid userId, Guid fileId);
+    
+    // Team Activity
+    Task<List<Commit>> GetTeamActivity(Guid userId, int limit = 20);
+    
+    // Quick Stats
+    Task<int> GetUserFileViewCount(Guid userId);
+    Task<int> GetUserRepositoryCount(Guid userId);
+    Task<int> GetUserCommitCount(Guid userId);
+    Task<int> GetUserPrsReviewedCount(Guid userId);
+    
+    // Pending Reviews (PRs waiting for user's input based on file ownership)
+    Task<List<PullRequest>> GetPendingReviews(Guid userId, int limit = 10);
+    
+    // Debug helpers
+    Task<bool> CheckUserHasCommitsInRepo(Guid userId, Guid repositoryId);
+    Task<bool> CheckIsRequestedReviewer(Guid userId, Guid prId);
+    
+    // Debug helpers
+    Task<List<PullRequest>> GetAllOpenPrs();
+    Task<bool> CheckUserRepositoryAccess(Guid userId, Guid repositoryId);
+    Task<bool> HasUserReviewedPr(Guid userId, Guid prId);
+    
+    // PR Requested Reviewers (NEW)
+    Task CreatePrRequestedReviewer(PrRequestedReviewer reviewer);
+    Task DeletePrRequestedReviewers(Guid prId);
+    Task<List<PullRequest>> GetPrsWhereUserIsRequestedReviewer(Guid userId, int limit = 10);
 }

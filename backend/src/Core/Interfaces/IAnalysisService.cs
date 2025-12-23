@@ -34,4 +34,45 @@ public interface IAnalysisService
     /// Only analyze changed files.
     /// </summary>
     Task ProcessIncrementalUpdate(Guid repositoryId, string commitSha, List<string> changedFiles);
+
+    /// <summary>
+    /// Fetch and store pull requests from GitHub API.
+    /// Syncs PR state, merges, and reviewers.
+    /// </summary>
+    Task FetchAndStorePullRequests(string owner, string repo, Guid repositoryId, string? accessToken = null);
+
+    /// <summary>
+    /// Get or create author user from commit information.
+    /// </summary>
+    Task<Core.Models.User> GetOrCreateAuthorUser(string email, string username, string repoOwner, string repoName, string commitSha, Guid repositoryId);
+
+    /// <summary>
+    /// Process a single file at a specific commit.
+    /// </summary>
+    Task ProcessFile(LibGit2Sharp.Repository repo, Core.Models.Commit commit, LibGit2Sharp.Commit gitCommit, string filePath, Guid authorId, string authorEmail);
+
+    /// <summary>
+    /// Ensure all files at HEAD are in the database.
+    /// </summary>
+    Task EnsureAllFilesAtHead(LibGit2Sharp.Repository repo, Guid repositoryId);
+
+    /// <summary>
+    /// Calculate ownership for files that were modified.
+    /// </summary>
+    Task CalculateOwnershipForModifiedFiles(Guid repositoryId);
+
+    /// <summary>
+    /// Reconcile dependencies at HEAD.
+    /// </summary>
+    Task ReconcileDependenciesAtHead(LibGit2Sharp.Repository repo, Guid repositoryId);
+
+    /// <summary>
+    /// Calculate dependency graph metrics.
+    /// </summary>
+    Task CalculateDependencyMetrics(Guid repositoryId);
+
+    /// <summary>
+    /// Clear the file author deltas tracker.
+    /// </summary>
+    void ClearFileAuthorDeltas();
 }
