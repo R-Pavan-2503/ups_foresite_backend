@@ -1,4 +1,7 @@
 {
+    "ConnectionStrings": {
+        "DefaultConnection": "${CONNECTION_STRING}"
+    },
     "GitHub": {
         "AppId": "2322543",
         "ClientId": "${GITHUB_CLIENT_ID}",
@@ -25,6 +28,9 @@
     "Supabase": {
         "Url": "${SUPABASE_URL}",
         "ServiceKey": "${SUPABASE_SERVICE_KEY}"
+    },
+    "GCS": {
+        "BucketName": "codefamily-files"
     },
     "Slack": {
         "BotToken": "${SLACK_BOT_TOKEN}"

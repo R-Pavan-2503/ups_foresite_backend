@@ -13,13 +13,13 @@ public class NotesService : INotesService
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly INotificationService _notificationService;
-    private readonly ISupabaseStorageService _storageService;
+    private readonly IStorageService _storageService;
     private readonly ILogger<NotesService> _logger;
 
     public NotesService(
         NpgsqlDataSource dataSource,
         INotificationService notificationService,
-        ISupabaseStorageService storageService,
+        IStorageService storageService,
         ILogger<NotesService> logger)
     {
         _dataSource = dataSource;
@@ -112,8 +112,8 @@ public class NotesService : INotesService
 
     public async Task<StickyNoteDto> CreateFileDocumentNoteAsync(Guid userId, Guid repositoryId, Guid fileId, Stream fileStream, string fileName)
     {
-        // Upload to Supabase Storage
-        var documentUrl = await _storageService.UploadFileAsync(fileStream, fileName, "file-note-dcouments");
+        // Upload to Cloud Storage
+        var documentUrl = await _storageService.UploadFileAsync(fileStream, fileName, "application/octet-stream");
 
         await using var conn = await _dataSource.OpenConnectionAsync();
 
@@ -221,7 +221,7 @@ public class NotesService : INotesService
             // Delete from storage if document
             if (!string.IsNullOrEmpty(documentUrl))
             {
-                await _storageService.DeleteFileAsync(documentUrl, "file-note-dcouments");
+                await _storageService.DeleteFileAsync(documentUrl);
             }
 
             using var deleteCmd = new NpgsqlCommand("DELETE FROM file_sticky_notes WHERE id = @noteId", conn);
@@ -248,7 +248,7 @@ public class NotesService : INotesService
 
             if (!string.IsNullOrEmpty(documentUrl))
             {
-                await _storageService.DeleteFileAsync(documentUrl, "file-note-dcouments");
+                await _storageService.DeleteFileAsync(documentUrl);
             }
 
             using var deleteCmd = new NpgsqlCommand("DELETE FROM repo_sticky_notes WHERE id = @noteId", conn);
@@ -710,7 +710,7 @@ public class NotesService : INotesService
 
     public async Task<StickyNoteDto> CreateRepoDocumentNoteAsync(Guid userId, Guid repositoryId, Stream fileStream, string fileName, List<Guid>? taggedFileIds)
     {
-        var documentUrl = await _storageService.UploadFileAsync(fileStream, fileName, "file-note-dcouments");
+        var documentUrl = await _storageService.UploadFileAsync(fileStream, fileName, "application/octet-stream");
 
         await using var conn = await _dataSource.OpenConnectionAsync();
 

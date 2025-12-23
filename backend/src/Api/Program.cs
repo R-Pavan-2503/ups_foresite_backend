@@ -97,7 +97,7 @@ builder.Services.AddScoped<IAnalysisService, AnalysisService>();
 builder.Services.AddSingleton<IGroqService, GroqService>();
 
 // Notes System Services
-builder.Services.AddSingleton<ISupabaseStorageService, SupabaseStorageService>();
+builder.Services.AddSingleton<IStorageService, GcsStorageService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<INotesService, NotesService>();
 builder.Services.AddScoped<ILineCommentsService, LineCommentsService>();
