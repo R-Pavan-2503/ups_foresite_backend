@@ -1820,6 +1820,19 @@ public class DatabaseService : IDatabaseService
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task ClearUserBookmarks(Guid userId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "DELETE FROM file_bookmarks WHERE user_id = @userId",
+            conn);
+
+        cmd.Parameters.AddWithValue("userId", userId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task<List<Commit>> GetTeamActivity(Guid userId, int limit = 20)
     {
         await using var conn = await _dataSource.OpenConnectionAsync();

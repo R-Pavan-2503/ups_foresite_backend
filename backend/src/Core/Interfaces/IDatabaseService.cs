@@ -119,6 +119,7 @@ public interface IDatabaseService
     Task<bool> IsFileBookmarked(Guid userId, Guid fileId);
     Task CreateFileBookmark(Guid userId, Guid fileId, string? category = null);
     Task DeleteFileBookmark(Guid userId, Guid fileId);
+    Task ClearUserBookmarks(Guid userId);
     
     // Team Activity
     Task<List<Commit>> GetTeamActivity(Guid userId, int limit = 20);

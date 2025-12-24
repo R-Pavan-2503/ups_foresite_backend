@@ -104,6 +104,13 @@ public class RepositoriesController : ControllerBase
                 else
                 {
                     // Repository analyzed by someone else - grant access to current user
+                    // First, ensure user exists in database
+                    var userExists = await _db.GetUserById(userId);
+                    if (userExists == null)
+                    {
+                        return BadRequest(new { error = "User not found. Please log in first to access this repository." });
+                    }
+
                     await _db.GrantRepositoryAccess(userId, existing.Id, existing.ConnectedByUserId);
 
                     // Clone bare repository immediately in background so it's ready when user views files
@@ -329,6 +336,13 @@ public class RepositoriesController : ControllerBase
                 else
                 {
                     // Repository analyzed by someone else - grant access to current user
+                    // First, ensure user exists in database
+                    var userExists = await _db.GetUserById(request.UserId);
+                    if (userExists == null)
+                    {
+                        return BadRequest(new { error = "User not found. Please log in first to access this repository." });
+                    }
+
                     await _db.GrantRepositoryAccess(request.UserId, existing.Id, existing.ConnectedByUserId);
 
                     // Clone bare repository immediately in background so it's ready when user views files
