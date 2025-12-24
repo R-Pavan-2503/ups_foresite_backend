@@ -79,8 +79,8 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
     ?? throw new Exception("ConnectionStrings:DefaultConnection is required");
 
 var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
-dataSourceBuilder.ConnectionStringBuilder.MinPoolSize = 5;
-dataSourceBuilder.ConnectionStringBuilder.MaxPoolSize = 50;
+dataSourceBuilder.ConnectionStringBuilder.MinPoolSize = 2;
+dataSourceBuilder.ConnectionStringBuilder.MaxPoolSize = 20;
 dataSourceBuilder.ConnectionStringBuilder.Pooling = true;
 
 var dataSource = dataSourceBuilder.Build();
@@ -97,7 +97,7 @@ builder.Services.AddScoped<IAnalysisService, AnalysisService>();
 builder.Services.AddSingleton<IGroqService, GroqService>();
 
 // Notes System Services
-builder.Services.AddSingleton<ISupabaseStorageService, SupabaseStorageService>();
+builder.Services.AddSingleton<IStorageService, GcsStorageService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<INotesService, NotesService>();
 builder.Services.AddScoped<ILineCommentsService, LineCommentsService>();

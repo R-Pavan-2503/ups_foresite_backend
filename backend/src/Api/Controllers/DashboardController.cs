@@ -197,6 +197,24 @@ public class DashboardController : ControllerBase
     }
 
     /// <summary>
+    /// Clear all bookmarks for a user
+    /// </summary>
+    [HttpDelete("{userId}/bookmarks")]
+    public async Task<IActionResult> ClearAllBookmarks(Guid userId)
+    {
+        try
+        {
+            await _db.ClearUserBookmarks(userId);
+            return Ok(new { success = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear bookmarks for user {UserId}", userId);
+            return StatusCode(500, new { error = "Failed to clear bookmarks" });
+        }
+    }
+
+    /// <summary>
     /// Get team activity feed
     /// </summary>
     [HttpGet("{userId}/team-activity")]
