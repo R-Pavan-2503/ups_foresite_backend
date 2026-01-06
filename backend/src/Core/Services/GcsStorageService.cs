@@ -59,7 +59,6 @@ public class GcsStorageService : IStorageService
             var memoryStream = new MemoryStream();
             await _storageClient.DownloadObjectAsync(_bucketName, objectName, memoryStream);
             memoryStream.Position = 0;
-
             return memoryStream;
         }
         catch (Exception ex)
