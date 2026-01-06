@@ -30,8 +30,7 @@
         "BotToken": "${SLACK_BOT_TOKEN}"
     },
     "Sidecar": {
-        // "Url": "${SIDECAR_URL}"
-        "Url": "http://localhost:3002"
+        "Url": "${SIDECAR_URL}"
     },
     "WebhookUrl": "https://conflagrant-alleen-balletic.ngrok-free.dev",
     "CloneBasePath": "./testdata/repos"
