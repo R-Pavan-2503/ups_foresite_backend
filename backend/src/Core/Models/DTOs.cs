@@ -310,3 +310,155 @@ public class UpdateLineCommentRequest
 {
     public string CommentText { get; set; } = string.Empty;
 }
+
+// ============================================
+// TEAMS & RBAC DTOs
+// ============================================
+
+public class TeamDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public Guid RepositoryId { get; set; }
+    public Guid? CreatedByUserId { get; set; }
+    public string? CreatedByUsername { get; set; }
+    public string? CreatedByAvatarUrl { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class TeamMemberDto
+{
+    public Guid Id { get; set; }
+    public Guid TeamId { get; set; }
+    public Guid UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
+    public string? Email { get; set; }
+    public string Role { get; set; } = "contributor"; // "team_leader" or "contributor"
+    public Guid? AssignedByUserId { get; set; }
+    public string? AssignedByUsername { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class TeamWithMembersDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public Guid RepositoryId { get; set; }
+    public Guid? CreatedByUserId { get; set; }
+    public string? CreatedByUsername { get; set; }
+    public string? CreatedByAvatarUrl { get; set; }
+    public List<TeamMemberDto> Members { get; set; } = new();
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class CreateTeamRequest
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public class UpdateTeamRequest
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public class AddTeamMemberRequest
+{
+    public Guid UserId { get; set; }
+    public string Role { get; set; } = "contributor"; // "team_leader" or "contributor"
+}
+
+public class UpdateTeamMemberRoleRequest
+{
+    public string Role { get; set; } = string.Empty; // "team_leader" or "contributor"
+}
+
+public class RepoAdminDto
+{
+    public Guid Id { get; set; }
+    public Guid RepositoryId { get; set; }
+    public Guid UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
+    public string? Email { get; set; }
+    public Guid? AssignedByUserId { get; set; }
+    public string? AssignedByUsername { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+// ============================================
+// TEAM ANALYTICS DTOs
+// ============================================
+
+public class MemberContributionDto
+{
+    public Guid UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
+    public string Role { get; set; } = string.Empty;
+    public int TotalCommits { get; set; }
+    public int LinesAdded { get; set; }
+    public int LinesRemoved { get; set; }
+    public int FilesChanged { get; set; }
+    public DateTime? LastCommitDate { get; set; }
+    public bool IsActive { get; set; }
+}
+
+public class ActivityTimelineDto
+{
+    public string Date { get; set; } = string.Empty;
+    public int Commits { get; set; }
+    public int LinesAdded { get; set; }
+    public int LinesRemoved { get; set; }
+}
+
+public class HotspotFileDto
+{
+    public Guid FileId { get; set; }
+    public string FilePath { get; set; } = string.Empty;
+    public int ChangeCount { get; set; }
+    public List<string> Contributors { get; set; } = new();
+}
+
+public class TeamContributionAnalyticsDto
+{
+    public Guid TeamId { get; set; }
+    public string TeamName { get; set; } = string.Empty;
+    public int TotalMembers { get; set; }
+    public int TotalCommits { get; set; }
+    public int TotalLinesAdded { get; set; }
+    public int TotalLinesRemoved { get; set; }
+    public int TotalFilesChanged { get; set; }
+    public List<MemberContributionDto> MemberContributions { get; set; } = new();
+    public List<ActivityTimelineDto> ActivityTimeline { get; set; } = new();
+    public List<HotspotFileDto> Hotspots { get; set; } = new();
+    public Dictionary<string, int> FileTypeDistribution { get; set; } = new();
+    public string MostActiveDay { get; set; } = string.Empty;
+    public DateTime? FirstCommitDate { get; set; }
+    public DateTime? LastCommitDate { get; set; }
+}
+
+public class IndividualContributionAnalyticsDto
+{
+    public Guid UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
+    public string Role { get; set; } = string.Empty;
+    public string TeamName { get; set; } = string.Empty;
+    public int TotalCommits { get; set; }
+    public int LinesAdded { get; set; }
+    public int LinesRemoved { get; set; }
+    public int FilesChanged { get; set; }
+    public List<ActivityTimelineDto> ActivityTimeline { get; set; } = new();
+    public List<HotspotFileDto> PersonalHotspots { get; set; } = new();
+    public Dictionary<string, int> FileTypeDistribution { get; set; } = new();
+    public string MostActiveDay { get; set; } = string.Empty;
+    public DateTime? FirstCommitDate { get; set; }
+    public DateTime? LastCommitDate { get; set; }
+    public double AverageCommitsPerDay { get; set; }
+    public List<string> CodeOwnership { get; set; } = new();
+}
+

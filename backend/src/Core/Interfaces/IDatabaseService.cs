@@ -146,4 +146,29 @@ public interface IDatabaseService
     Task CreatePrRequestedReviewer(PrRequestedReviewer reviewer);
     Task DeletePrRequestedReviewers(Guid prId);
     Task<List<PullRequest>> GetPrsWhereUserIsRequestedReviewer(Guid userId, int limit = 10);
+
+    // ============================================
+    // TEAMS & RBAC
+    // ============================================
+    
+    // Repo Admins
+    Task<bool> IsRepoAdmin(Guid userId, Guid repositoryId);
+    Task<List<RepoAdmin>> GetRepoAdmins(Guid repositoryId);
+    Task<RepoAdmin> CreateRepoAdmin(Guid repositoryId, Guid userId, Guid? assignedByUserId = null);
+    Task DeleteRepoAdmin(Guid repoAdminId);
+    
+    // Teams
+    Task<Team> CreateTeam(Team team);
+    Task<List<Team>> GetTeamsByRepository(Guid repositoryId);
+    Task<Team?> GetTeamById(Guid teamId);
+    Task UpdateTeamName(Guid teamId, string name);
+    Task DeleteTeam(Guid teamId);
+    
+    // Team Members
+    Task<TeamMember> AddTeamMember(TeamMember member);
+    Task<List<TeamMember>> GetTeamMembers(Guid teamId);
+    Task<TeamMember?> GetTeamMember(Guid memberId);
+    Task UpdateTeamMemberRole(Guid memberId, string role);
+    Task RemoveTeamMember(Guid memberId);
+    Task<bool> IsUserInTeam(Guid userId, Guid teamId);
 }
