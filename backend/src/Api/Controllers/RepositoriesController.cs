@@ -530,10 +530,25 @@ public class RepositoriesController : ControllerBase
 
     // New Analytics Endpoints
     [HttpGet("{repositoryId}/analytics")]
-    public async Task<IActionResult> GetRepositoryAnalytics(Guid repositoryId, [FromQuery] string? branchName = null)
+    public async Task<IActionResult> GetRepositoryAnalytics(
+        Guid repositoryId, 
+        [FromQuery] string? branchName = null,
+        [FromQuery] int timelineDays = 7)  // 0 = Lifetime, 7 = Past 7 Days, 30 = Past 30 Days
     {
         try
         {
+            // Validate timelineDays - allow 0 (Lifetime), 7, or 30
+            if (timelineDays != 0 && timelineDays != 7 && timelineDays != 30)
+            {
+                timelineDays = 7;  // Default to 7 if invalid value
+            }
+
+            // Calculate the cutoff date based on timeline selection
+            // For Lifetime (0), we use DateTime.MinValue to include all data
+            var cutoffDate = timelineDays == 0 
+                ? DateTime.MinValue 
+                : DateTime.UtcNow.AddDays(-timelineDays);
+
             var repo = await _db.GetRepositoryById(repositoryId);
             if (repo == null) return NotFound();
 
@@ -559,30 +574,37 @@ public class RepositoriesController : ControllerBase
                 files = await _db.GetFilesByRepository(repositoryId);
             }
 
+            // Calculate contributors from commits within the timeline
+            var filteredCommits = commits.Where(c => c.CommittedAt >= cutoffDate).ToList();
+            var filteredCommitIds = filteredCommits.Select(c => c.Id).ToHashSet();
+            
+            var uniqueAuthors = filteredCommits
+                .Where(c => !string.IsNullOrEmpty(c.AuthorName))
+                .Select(c => c.AuthorName)
+                .Distinct()
+                .ToList();
+            var contributorCount = uniqueAuthors.Count;
+
             // OPTIMIZED: Get file changes for all files in batch
             var fileIds = files.Select(f => f.Id).ToList();
             var fileChangesDict = await _db.GetFileChangesByFileIds(fileIds);
+            
+            // Filter file changes by timeline using filtered commits (since FileChange doesn't have date)
             var fileChangeCounts = fileChangesDict.ToDictionary(
                 kvp => kvp.Key,
-                kvp => kvp.Value.Count
+                kvp => timelineDays == 0 
+                    ? kvp.Value.Count  // Lifetime: count all changes
+                    : kvp.Value.Count(change => filteredCommitIds.Contains(change.CommitId))  // Filter by commits in timeline
             );
 
-            // OPTIMIZED: Calculate contributors from file ownership in batch
-            var ownershipDict = await _db.GetFileOwnershipByFileIds(fileIds);
-            var uniqueAuthors = new HashSet<string>();
-            foreach (var ownershipList in ownershipDict.Values)
-            {
-                foreach (var owner in ownershipList)
-                {
-                    uniqueAuthors.Add(owner.AuthorName);
-                }
-            }
-            var contributorCount = uniqueAuthors.Count;
+            // Calculate activity timeline based on selected timeline
+            // For Lifetime, show last 365 days in the chart (otherwise chart would be too crowded)
+            var chartCutoffDate = timelineDays == 0 
+                ? DateTime.UtcNow.AddDays(-365)
+                : cutoffDate;
 
-            // Calculate activity timeline (last 30 days)
-            var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
-            var recentCommits = commits
-                .Where(c => c.CommittedAt >= thirtyDaysAgo)
+            var activityTimeline = commits
+                .Where(c => c.CommittedAt >= chartCutoffDate)
                 .GroupBy(c => c.CommittedAt.Date)
                 .Select(g => new
                 {
@@ -592,7 +614,7 @@ public class RepositoriesController : ControllerBase
                 .OrderBy(x => x.Date)
                 .ToList();
 
-            // Calculate file type distribution
+            // Calculate file type distribution (always all-time)
             var fileTypes = files
                 .GroupBy(f =>
                 {
@@ -608,32 +630,37 @@ public class RepositoriesController : ControllerBase
                 .Take(8)
                 .ToList();
 
-            // Find hotspot files (most frequently changed)
-            var hotspots = fileChangeCounts
+            // Find hotspot files (most frequently changed within timeline)
+            var filteredFileChangeCounts = fileChangeCounts
+                .Where(kvp => kvp.Value > 0)
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+            var hotspots = filteredFileChangeCounts
                 .OrderByDescending(kvp => kvp.Value)
                 .Take(5)
                 .Select(kvp =>
                 {
-                    var file = files.First(f => f.Id == kvp.Key);
-                    return new
+                    var file = files.FirstOrDefault(f => f.Id == kvp.Key);
+                    return file != null ? new
                     {
                         FilePath = file.FilePath,
                         Changes = kvp.Value
-                    };
+                    } : null;
                 })
+                .Where(h => h != null)
                 .ToList();
 
-            // Calculate last 7 days activity
-            var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
-            var recentCommitsCount = commits.Count(c => c.CommittedAt >= sevenDaysAgo);
+            // Calculate commits within the selected timeline
+            var recentCommitsCount = filteredCommits.Count;
 
             return Ok(new
             {
+                TimelineDays = timelineDays,  // Include for frontend reference
                 TotalFiles = files.Count,
                 TotalCommits = commits.Count,
                 Contributors = contributorCount,
                 RecentCommits = recentCommitsCount,
-                ActivityTimeline = recentCommits,
+                ActivityTimeline = activityTimeline,
                 FileTypes = fileTypes,
                 Hotspots = hotspots
             });
@@ -706,32 +733,47 @@ public class RepositoriesController : ControllerBase
     }
 
     [HttpGet("{repositoryId}/team-insights")]
-    public async Task<IActionResult> GetTeamInsights(Guid repositoryId, [FromQuery] string? branchName = null)
+    public async Task<IActionResult> GetTeamInsights(
+        Guid repositoryId, 
+        [FromQuery] string? branchName = null,
+        [FromQuery] int timelineDays = 7)  // 0 = Lifetime, 7 = Past 7 Days, 30 = Past 30 Days
     {
         try
         {
+            // Validate timelineDays - allow 0 (Lifetime), 7, or 30
+            if (timelineDays != 0 && timelineDays != 7 && timelineDays != 30)
+            {
+                timelineDays = 7;
+            }
+
+            // Calculate the cutoff date based on timeline selection
+            var cutoffDate = timelineDays == 0 
+                ? DateTime.MinValue 
+                : DateTime.UtcNow.AddDays(-timelineDays);
+
             var repo = await _db.GetRepositoryById(repositoryId);
             if (repo == null) return NotFound();
 
             // Get commits - filter by branch if specified
-            List<Core.Models.Commit> commits;
+            List<Core.Models.Commit> allCommits;
             List<Core.Models.RepositoryFile> files;
             if (!string.IsNullOrEmpty(branchName))
             {
-                commits = await _db.GetCommitsByBranch(repositoryId, branchName);
+                allCommits = await _db.GetCommitsByBranch(repositoryId, branchName);
                 files = await _db.GetFilesByBranch(repositoryId, branchName);
             }
             else
             {
-                commits = await _db.GetCommitsByRepository(repositoryId);
+                allCommits = await _db.GetCommitsByRepository(repositoryId);
                 files = await _db.GetFilesByRepository(repositoryId);
             }
 
+            // Filter commits by timeline
+            var commits = allCommits.Where(c => c.CommittedAt >= cutoffDate).ToList();
+            var filteredCommitIds = commits.Select(c => c.Id).ToHashSet();
 
-
-            // Calculate contributor details directly from commits
+            // Calculate contributor details from filtered commits
             var contributorDetails = new List<object>();
-            var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
 
             var commitsByAuthor = commits
                 .Where(c => !string.IsNullOrEmpty(c.AuthorName))
@@ -742,7 +784,7 @@ public class RepositoriesController : ControllerBase
             var allUsers = await _db.GetUsersByAuthorNames(allAuthorNames);
             var usersDict = allUsers.ToDictionary(u => u.AuthorName);
 
-            // OPTIMIZED: Get all file changes for all commits in batch
+            // OPTIMIZED: Get all file changes for filtered commits in batch
             var allCommitIds = commits.Select(c => c.Id).ToList();
             var allFileChanges = await _db.GetFileChangesByCommitIds(allCommitIds);
 
@@ -777,7 +819,8 @@ public class RepositoriesController : ControllerBase
                     }
                 }
 
-                var isActive = lastCommit.HasValue && lastCommit.Value >= sevenDaysAgo;
+                // For "active" status, use the timeline's cutoff (someone is active if they committed in this period)
+                var isActive = lastCommit.HasValue && lastCommit.Value >= cutoffDate;
 
                 contributorDetails.Add(new
                 {
@@ -792,16 +835,27 @@ public class RepositoriesController : ControllerBase
                 });
             }
 
-            // Calculate ownership distribution by file type
+            // Calculate ownership distribution by file type (based on files changed in timeline)
+            var filesChangedInTimeline = new HashSet<Guid>();
+            foreach (var changes in allFileChanges.Values)
+            {
+                foreach (var change in changes)
+                {
+                    filesChangedInTimeline.Add(change.FileId);
+                }
+            }
+
+            var relevantFiles = files.Where(f => timelineDays == 0 || filesChangedInTimeline.Contains(f.Id)).ToList();
+            
             var ownershipData = new List<object>();
-            var fileTypeGroups = files.GroupBy(f =>
+            var fileTypeGroups = relevantFiles.GroupBy(f =>
             {
                 var ext = Path.GetExtension(f.FilePath);
                 return string.IsNullOrEmpty(ext) ? "other" : ext.TrimStart('.');
             }).Take(5);
 
             // OPTIMIZED: Get ownership for all files in batch
-            var allFileIds = files.Select(f => f.Id).ToList();
+            var allFileIds = relevantFiles.Select(f => f.Id).ToList();
             var fileOwnershipDict = await _db.GetFileOwnershipByFileIds(allFileIds);
 
             foreach (var typeGroup in fileTypeGroups)
@@ -830,7 +884,7 @@ public class RepositoriesController : ControllerBase
                 ownershipData.Add(merged);
             }
 
-            // Calculate most active day
+            // Calculate most active day (within the timeline)
             var dayCommits = commits
                 .GroupBy(c => c.CommittedAt.DayOfWeek)
                 .Select(g => new { Day = g.Key, Count = g.Count() })
@@ -841,6 +895,7 @@ public class RepositoriesController : ControllerBase
 
             return Ok(new
             {
+                TimelineDays = timelineDays,  // Include for frontend reference
                 TotalContributors = contributorDetails.Count,
                 ActiveContributors = contributorDetails.Count(c => ((dynamic)c).Active),
                 AvgCommitsPerContributor = contributorDetails.Count > 0
