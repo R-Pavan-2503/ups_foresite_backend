@@ -26,12 +26,13 @@ public class TeamsController : ControllerBase
     {
         try
         {
-            // Check if user is admin (if userId provided)
-            var isAdmin = false;
-            if (userId.HasValue)
-            {
-                isAdmin = await _db.IsRepoAdmin(userId.Value, repositoryId);
-            }
+        // Check if user is admin or owner
+        var isAdmin = false;
+        if (userId.HasValue)
+        {
+            var repo = await _db.GetRepositoryById(repositoryId);
+            isAdmin = await _db.IsRepoAdmin(userId.Value, repositoryId) || (repo != null && repo.ConnectedByUserId == userId.Value);
+        }
 
             var teams = await _db.GetTeamsByRepository(repositoryId);
             var result = new List<TeamWithMembersDto>();
@@ -100,11 +101,12 @@ public class TeamsController : ControllerBase
     {
         try
         {
-            // Check if user is admin
-            var isAdmin = await _db.IsRepoAdmin(userId, repositoryId);
+            // Check if user is admin or owner
+            var repo = await _db.GetRepositoryById(repositoryId);
+            var isAdmin = await _db.IsRepoAdmin(userId, repositoryId) || (repo != null && repo.ConnectedByUserId == userId);
             if (!isAdmin)
             {
-                return Forbid("Only repository admins can create teams");
+                return StatusCode(403, new { error = "Only repository owners and admins can create teams" });
             }
 
             var team = await _db.CreateTeam(new Team
@@ -132,11 +134,12 @@ public class TeamsController : ControllerBase
     {
         try
         {
-            // Check if user is admin
-            var isAdmin = await _db.IsRepoAdmin(userId, repositoryId);
+            // Check if user is admin or owner
+            var repo = await _db.GetRepositoryById(repositoryId);
+            var isAdmin = await _db.IsRepoAdmin(userId, repositoryId) || (repo != null && repo.ConnectedByUserId == userId);
             if (!isAdmin)
             {
-                return Forbid("Only repository admins can update teams");
+                return StatusCode(403, new { error = "Only repository owners and admins can update teams" });
             }
 
             await _db.UpdateTeamName(teamId, request.Name);
@@ -157,11 +160,12 @@ public class TeamsController : ControllerBase
     {
         try
         {
-            // Check if user is admin
-            var isAdmin = await _db.IsRepoAdmin(userId, repositoryId);
+            // Check if user is admin or owner
+            var repo = await _db.GetRepositoryById(repositoryId);
+            var isAdmin = await _db.IsRepoAdmin(userId, repositoryId) || (repo != null && repo.ConnectedByUserId == userId);
             if (!isAdmin)
             {
-                return Forbid ("Only repository admins can delete teams");
+                return StatusCode(403, new { error = "Only repository owners and admins can delete teams" });
             }
 
             await _db.DeleteTeam(teamId);
@@ -187,11 +191,12 @@ public class TeamsController : ControllerBase
     {
         try
         {
-            // Check if user is admin
-            var isAdmin = await _db.IsRepoAdmin(userId, repositoryId);
+            // Check if user is admin or owner
+            var repo = await _db.GetRepositoryById(repositoryId);
+            var isAdmin = await _db.IsRepoAdmin(userId, repositoryId) || (repo != null && repo.ConnectedByUserId == userId);
             if (!isAdmin)
             {
-                return Forbid("Only repository admins can add team members");
+                return StatusCode(403, new { error = "Only repository owners and admins can add team members" });
             }
 
             // Check if user already in team
@@ -228,11 +233,12 @@ public class TeamsController : ControllerBase
     {
         try
         {
-            // Check if user is admin
-            var isAdmin = await _db.IsRepoAdmin(userId, repositoryId);
+            // Check if user is admin or owner
+            var repo = await _db.GetRepositoryById(repositoryId);
+            var isAdmin = await _db.IsRepoAdmin(userId, repositoryId) || (repo != null && repo.ConnectedByUserId == userId);
             if (!isAdmin)
             {
-                return Forbid("Only repository admins can update team member roles");
+                return StatusCode(403, new { error = "Only repository owners and admins can update team member roles" });
             }
 
             await _db.UpdateTeamMemberRole(memberId, request.Role);
@@ -254,11 +260,12 @@ public class TeamsController : ControllerBase
     {
         try
         {
-            // Check if user is admin
-            var isAdmin = await _db.IsRepoAdmin(userId, repositoryId);
+            // Check if user is admin or owner
+            var repo = await _db.GetRepositoryById(repositoryId);
+            var isAdmin = await _db.IsRepoAdmin(userId, repositoryId) || (repo != null && repo.ConnectedByUserId == userId);
             if (!isAdmin)
             {
-                return Forbid("Only repository admins can remove team members");
+                return StatusCode(403, new { error = "Only repository owners and admins can remove team members" });
             }
 
             await _db.RemoveTeamMember(memberId);

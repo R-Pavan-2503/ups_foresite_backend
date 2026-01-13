@@ -82,6 +82,31 @@ public class RepositoriesController : ControllerBase
                 accessToken = authorization.Substring("Bearer ".Length).Trim();
             }
 
+            // CRITICAL: Verify the user is the actual repository owner via GitHub API
+            var repoOwnerUsername = await _github.GetRepositoryOwnerUsername(owner, repo, accessToken);
+            if (repoOwnerUsername == null)
+            {
+                return BadRequest(new { error = "Unable to fetch repository information from GitHub. Please check the repository name and your access permissions." });
+            }
+
+            // Get current user's GitHub username
+            var currentUser = await _db.GetUserById(userId);
+            if (currentUser == null)
+            {
+                return BadRequest(new { error = "User not found. Please log in first." });
+            }
+
+            // Compare current user's author name with actual GitHub repo owner
+            if (!string.Equals(currentUser.AuthorName, repoOwnerUsername, StringComparison.OrdinalIgnoreCase))
+            {
+                return StatusCode(403, new { 
+                    error = "Only the repository owner can trigger analysis.",
+                    message = $"This repository belongs to '{repoOwnerUsername}'. Only the owner can analyze it.",
+                    requiredOwner = repoOwnerUsername,
+                    yourUsername = currentUser.AuthorName
+                });
+            }
+
             // Check if repository already exists in database
             var existing = await _db.GetRepositoryByName(owner, repo);
 
@@ -464,6 +489,48 @@ public class RepositoriesController : ControllerBase
         catch
         {
             return (string.Empty, string.Empty);
+        }
+    }
+
+    [HttpGet("{repositoryId}/user-role")]
+    public async Task<IActionResult> GetUserRole(Guid repositoryId, [FromQuery] Guid userId)
+    {
+        try
+        {
+            var repo = await _db.GetRepositoryById(repositoryId);
+            if (repo == null) 
+                return NotFound(new { error = "Repository not found" });
+
+            // Check if owner
+            if (repo.ConnectedByUserId == userId)
+                return Ok(new { role = "owner", isOwner = true, isAdmin = false, isTeamLeader = false });
+
+            // Check if admin
+            bool isAdmin = await _db.IsRepoAdmin(userId, repositoryId);
+            if (isAdmin)
+                return Ok(new { role = "admin", isOwner = false, isAdmin = true, isTeamLeader = false });
+
+            // Check if team leader
+            var teams = await _db.GetTeamsByRepository(repositoryId);
+            foreach (var team in teams)
+            {
+                var members = await _db.GetTeamMembers(team.Id);
+                var member = members.FirstOrDefault(m => m.UserId == userId);
+                if (member?.Role == "team_leader")
+                    return Ok(new { role = "team_leader", isOwner = false, isAdmin = false, isTeamLeader = true });
+            }
+
+            // Must be contributor (has access but no special role)
+            bool hasAccess = await _db.HasRepositoryAccess(userId, repositoryId);
+            if (hasAccess)
+                return Ok(new { role = "contributor", isOwner = false, isAdmin = false, isTeamLeader = false });
+
+            // No access at all
+            return StatusCode(403, new { error = "You do not have access to this repository", role = "none" });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
         }
     }
 
