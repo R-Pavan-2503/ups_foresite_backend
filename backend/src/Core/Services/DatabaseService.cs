@@ -116,6 +116,62 @@ public class DatabaseService : IDatabaseService
         return users;
     }
 
+    // Get all users who have access to a repository
+    public async Task<List<User>> GetUsersWithRepositoryAccess(Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            @"SELECT DISTINCT u.id, u.github_id, u.author_name, u.email, u.avatar_url 
+              FROM users u
+              INNER JOIN repository_user_access rua ON u.id = rua.user_id
+              WHERE rua.repository_id = @repositoryId
+              ORDER BY u.author_name",
+            conn);
+
+        cmd.Parameters.AddWithValue("repositoryId", repositoryId);
+
+        var users = new List<User>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            users.Add(new User
+            {
+                Id = reader.GetGuid(0),
+                GithubId = reader.GetInt64(1),
+                AuthorName = reader.GetString(2),
+                Email = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AvatarUrl = reader.IsDBNull(4) ? null : reader.GetString(4)
+            });
+        }
+        return users;
+    }
+
+    // Get all users in the system
+    public async Task<List<User>> GetAllUsers()
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, github_id, author_name, email, avatar_url FROM users ORDER BY author_name",
+            conn);
+
+        var users = new List<User>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            users.Add(new User
+            {
+                Id = reader.GetGuid(0),
+                GithubId = reader.GetInt64(1),
+                AuthorName = reader.GetString(2),
+                Email = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AvatarUrl = reader.IsDBNull(4) ? null : reader.GetString(4)
+            });
+        }
+        return users;
+    }
+
 
     public async Task<User> CreateUser(User user)
     {

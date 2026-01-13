@@ -82,37 +82,19 @@ public class RepositoriesController : ControllerBase
                 accessToken = authorization.Substring("Bearer ".Length).Trim();
             }
 
-            // CRITICAL: Verify the user is the actual repository owner via GitHub API
-            var repoOwnerUsername = await _github.GetRepositoryOwnerUsername(owner, repo, accessToken);
-            if (repoOwnerUsername == null)
-            {
-                return BadRequest(new { error = "Unable to fetch repository information from GitHub. Please check the repository name and your access permissions." });
-            }
-
-            // Get current user's GitHub username
+            // Get current user
             var currentUser = await _db.GetUserById(userId);
             if (currentUser == null)
             {
                 return BadRequest(new { error = "User not found. Please log in first." });
             }
 
-            // Compare current user's author name with actual GitHub repo owner
-            if (!string.Equals(currentUser.AuthorName, repoOwnerUsername, StringComparison.OrdinalIgnoreCase))
-            {
-                return StatusCode(403, new { 
-                    error = "Only the repository owner can trigger analysis.",
-                    message = $"This repository belongs to '{repoOwnerUsername}'. Only the owner can analyze it.",
-                    requiredOwner = repoOwnerUsername,
-                    yourUsername = currentUser.AuthorName
-                });
-            }
-
-            // Check if repository already exists in database
+            // FIRST: Check if repository already exists in database
             var existing = await _db.GetRepositoryByName(owner, repo);
 
             if (existing != null)
             {
-                // Repository already analyzed - check if current user has access
+                // Repository already analyzed - grant access to anyone!
                 var hasAccess = await _db.HasRepositoryAccess(userId, existing.Id);
 
                 if (hasAccess)
@@ -129,13 +111,6 @@ public class RepositoriesController : ControllerBase
                 else
                 {
                     // Repository analyzed by someone else - grant access to current user
-                    // First, ensure user exists in database
-                    var userExists = await _db.GetUserById(userId);
-                    if (userExists == null)
-                    {
-                        return BadRequest(new { error = "User not found. Please log in first to access this repository." });
-                    }
-
                     await _db.GrantRepositoryAccess(userId, existing.Id, existing.ConnectedByUserId);
 
                     // Clone bare repository immediately in background so it's ready when user views files
@@ -171,6 +146,25 @@ public class RepositoriesController : ControllerBase
                         alreadyAnalyzed = true
                     });
                 }
+            }
+
+            // Repository NOT in database - This is a NEW analysis
+            // NOW enforce owner verification for new repositories
+            var repoOwnerUsername = await _github.GetRepositoryOwnerUsername(owner, repo, accessToken);
+            if (repoOwnerUsername == null)
+            {
+                return BadRequest(new { error = "Unable to fetch repository information from GitHub. Please check the repository name and your access permissions." });
+            }
+
+            // Compare current user's author name with actual GitHub repo owner
+            if (!string.Equals(currentUser.AuthorName, repoOwnerUsername, StringComparison.OrdinalIgnoreCase))
+            {
+                return StatusCode(403, new { 
+                    error = "Only the repository owner can trigger the first analysis.",
+                    message = $"This repository belongs to '{repoOwnerUsername}'. It must be analyzed by the owner first, then others can access it.",
+                    requiredOwner = repoOwnerUsername,
+                    yourUsername = currentUser.AuthorName
+                });
             }
 
             // Repository not yet analyzed - create new repository record

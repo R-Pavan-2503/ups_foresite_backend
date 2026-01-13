@@ -671,18 +671,11 @@ public class RepositoryUsersController : ControllerBase
     {
         try
         {
-            // Get all commits from the repository to find contributors
-            var commits = await _db.GetCommitsByRepository(repositoryId);
-            var authorNames = commits
-                .Where(c => !string.IsNullOrEmpty(c.AuthorName))
-                .Select(c => c.AuthorName!)
-                .Distinct()
-                .ToList();
+            // Simply get ALL users from the database
+            // The owner should be able to add any user as admin
+            var allUsers = await _db.GetAllUsers();
 
-            // Get all users that have contributed
-            var users = await _db.GetUsersByAuthorNames(authorNames);
-
-            var result = users.Select(u => new
+            var result = allUsers.Select(u => new
             {
                 u.Id,
                 u.AuthorName,

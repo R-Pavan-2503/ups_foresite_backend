@@ -14,6 +14,8 @@ public interface IDatabaseService
     Task UpdateUserAuthorName(Guid userId, string authorName);
     Task UpdateUserAvatar(Guid userId, string avatarUrl);
     Task<List<User>> GetUsersByAuthorNames(List<string> authorNames); // BATCH: Get multiple users at once
+    Task<List<User>> GetUsersWithRepositoryAccess(Guid repositoryId); // Get all users who have access to a repository
+    Task<List<User>> GetAllUsers(); // Get all users in the system
 
     // Repositories
     Task<Repository?> GetRepositoryByName(string owner, string name);
