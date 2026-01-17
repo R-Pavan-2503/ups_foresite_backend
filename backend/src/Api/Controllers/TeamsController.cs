@@ -179,6 +179,20 @@ public class TeamsController : ControllerBase
     }
 
     // ============================================
+    // HELPER METHODS
+    // ============================================
+
+    /// <summary>
+    /// Check if a user is a team leader of a specific team
+    /// </summary>
+    private async Task<bool> IsTeamLeader(Guid userId, Guid teamId)
+    {
+        var members = await _db.GetTeamMembers(teamId);
+        var member = members.FirstOrDefault(m => m.UserId == userId);
+        return member?.Role == "team_leader";
+    }
+
+    // ============================================
     // TEAM MEMBERS
     // ============================================
 
@@ -191,12 +205,20 @@ public class TeamsController : ControllerBase
     {
         try
         {
-            // Check if user is admin or owner
+            // Check if user is admin, owner, OR team leader of this team
             var repo = await _db.GetRepositoryById(repositoryId);
             var isAdmin = await _db.IsRepoAdmin(userId, repositoryId) || (repo != null && repo.ConnectedByUserId == userId);
-            if (!isAdmin)
+            var isTeamLeader = await IsTeamLeader(userId, teamId);
+
+            if (!isAdmin && !isTeamLeader)
             {
-                return StatusCode(403, new { error = "Only repository owners and admins can add team members" });
+                return StatusCode(403, new { error = "Only owners, admins, or team leaders can add team members" });
+            }
+
+            // Team leaders can only add contributors, not other team leaders
+            if (isTeamLeader && !isAdmin && request.Role == "team_leader")
+            {
+                return StatusCode(403, new { error = "Only owners and admins can assign the team leader role" });
             }
 
             // Check if user already in team
@@ -260,12 +282,24 @@ public class TeamsController : ControllerBase
     {
         try
         {
-            // Check if user is admin or owner
+            // Check if user is admin, owner, OR team leader of this team
             var repo = await _db.GetRepositoryById(repositoryId);
             var isAdmin = await _db.IsRepoAdmin(userId, repositoryId) || (repo != null && repo.ConnectedByUserId == userId);
-            if (!isAdmin)
+            var isTeamLeader = await IsTeamLeader(userId, teamId);
+
+            if (!isAdmin && !isTeamLeader)
             {
-                return StatusCode(403, new { error = "Only repository owners and admins can remove team members" });
+                return StatusCode(403, new { error = "Only owners, admins, or team leaders can remove team members" });
+            }
+
+            // Team leaders cannot remove other team leaders (only admins can)
+            if (isTeamLeader && !isAdmin)
+            {
+                var memberToRemove = await _db.GetTeamMember(memberId);
+                if (memberToRemove?.Role == "team_leader")
+                {
+                    return StatusCode(403, new { error = "Team leaders cannot remove other team leaders" });
+                }
             }
 
             await _db.RemoveTeamMember(memberId);
