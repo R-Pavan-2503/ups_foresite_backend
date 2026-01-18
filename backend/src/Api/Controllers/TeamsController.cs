@@ -321,10 +321,17 @@ public class TeamsController : ControllerBase
         Guid repositoryId,
         Guid teamId,
         [FromQuery] Guid? userId = null,
-        [FromQuery] Guid? memberId = null)
+        [FromQuery] Guid? memberId = null,
+        [FromQuery] int timelineDays = 7)  // 0 = Lifetime, 7 = Past 7 Days, 30 = Past 30 Days
     {
         try
         {
+            // Validate timelineDays - allow 0 (Lifetime), 7, or 30
+            if (timelineDays != 0 && timelineDays != 7 && timelineDays != 30)
+            {
+                timelineDays = 7;  // Default to 7 if invalid value
+            }
+
             // Get team and members
             var team = await _db.GetTeamById(teamId);
             if (team == null)
@@ -352,12 +359,12 @@ public class TeamsController : ControllerBase
                     return NotFound(new { error = "Member not found in this team" });
                 }
 
-                var individualAnalytics = await GetIndividualMemberAnalytics(repositoryId, member, team.Name);
+                var individualAnalytics = await GetIndividualMemberAnalytics(repositoryId, member, team.Name, timelineDays);
                 return Ok(individualAnalytics);
             }
 
             // Otherwise, return team analytics
-            var teamAnalytics = await GetTeamContributionAnalytics(repositoryId, team, members);
+            var teamAnalytics = await GetTeamContributionAnalytics(repositoryId, team, members, timelineDays);
             return Ok(teamAnalytics);
         }
         catch (Exception ex)
@@ -370,9 +377,15 @@ public class TeamsController : ControllerBase
     private async Task<TeamContributionAnalyticsDto> GetTeamContributionAnalytics(
         Guid repositoryId,
         Team team,
-        List<TeamMember> members)
+        List<TeamMember> members,
+        int timelineDays = 7)
     {
         var memberUserIds = members.Select(m => m.UserId).ToList();
+        
+        // Calculate the cutoff date based on timeline selection
+        var cutoffDate = timelineDays == 0 
+            ? DateTime.MinValue 
+            : DateTime.UtcNow.AddDays(-timelineDays);
         
         // PRE-FETCH: Get all users for team members in ONE batch query
         var teamUsers = await _db.GetUsersByIds(memberUserIds);
@@ -381,10 +394,11 @@ public class TeamsController : ControllerBase
         
         var commits = await _db.GetCommitsByRepository(repositoryId);
         
-        // Filter commits by team member author names (fast HashSet lookup)
+        // Filter commits by team member author names AND by timeline (fast HashSet lookup)
         var teamCommits = commits.Where(c => 
             !string.IsNullOrEmpty(c.AuthorName) && 
-            teamAuthorNames.Contains(c.AuthorName)
+            teamAuthorNames.Contains(c.AuthorName) &&
+            c.CommittedAt >= cutoffDate
         ).ToList();
 
         // Get all commit IDs for file changes
@@ -393,7 +407,6 @@ public class TeamsController : ControllerBase
 
         // Calculate member contributions using pre-fetched user data
         var memberContributions = new List<MemberContributionDto>();
-        var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
 
         foreach (var member in members)
         {
@@ -432,7 +445,7 @@ public class TeamsController : ControllerBase
                 LinesRemoved = linesRemoved,
                 FilesChanged = filesChanged.Count,
                 LastCommitDate = lastCommit?.CommittedAt,
-                IsActive = lastCommit != null && lastCommit.CommittedAt >= sevenDaysAgo
+                IsActive = lastCommit != null && lastCommit.CommittedAt >= cutoffDate
             });
         }
 
@@ -546,8 +559,14 @@ public class TeamsController : ControllerBase
     private async Task<IndividualContributionAnalyticsDto> GetIndividualMemberAnalytics(
         Guid repositoryId,
         TeamMember member,
-        string teamName)
+        string teamName,
+        int timelineDays = 7)
     {
+        // Calculate the cutoff date based on timeline selection
+        var cutoffDate = timelineDays == 0 
+            ? DateTime.MinValue 
+            : DateTime.UtcNow.AddDays(-timelineDays);
+
         var user = await _db.GetUserById(member.UserId);
         if (user == null)
         {
@@ -555,7 +574,8 @@ public class TeamsController : ControllerBase
         }
 
         var commits = await _db.GetCommitsByRepository(repositoryId);
-        var userCommits = commits.Where(c => c.AuthorName == user.AuthorName).ToList();
+        // Filter commits by author AND by timeline
+        var userCommits = commits.Where(c => c.AuthorName == user.AuthorName && c.CommittedAt >= cutoffDate).ToList();
         var commitIds = userCommits.Select(c => c.Id).ToList();
         var fileChangesDict = await _db.GetFileChangesByCommitIds(commitIds);
 
@@ -574,9 +594,11 @@ public class TeamsController : ControllerBase
             }
         }
 
-        // Timeline (last 30 days)
-        var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
-        var recentCommits = userCommits.Where(c => c.CommittedAt >= thirtyDaysAgo);
+        // Timeline - use more appropriate range for charts based on timelineDays
+        var chartCutoffDate = timelineDays == 0 
+            ? DateTime.UtcNow.AddDays(-365)  // Show last 365 days for Lifetime
+            : cutoffDate;
+        var recentCommits = userCommits.Where(c => c.CommittedAt >= chartCutoffDate);
         var timeline = recentCommits
             .GroupBy(c => c.CommittedAt.Date)
             .Select(g =>

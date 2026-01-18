@@ -181,6 +181,7 @@ public interface IDatabaseService
     
     Task CreateCodeReplacementEvent(CodeReplacementEvent evt);
     Task<List<CodeReplacementEvent>> GetReplacementEventsByContributor(Guid repositoryId, string contributorName);
+    Task<List<CodeReplacementEvent>> GetAllReplacementEvents(Guid repositoryId);  // NEW: For timeline-filtered scoring
     Task UpsertContributorNegativeScore(ContributorNegativeScore score);
     Task<List<ContributorNegativeScore>> GetNegativeScoresByRepository(Guid repositoryId);
     Task DeleteNegativeScoreData(Guid repositoryId); // For recalculation

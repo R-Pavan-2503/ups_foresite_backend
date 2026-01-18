@@ -2626,6 +2626,44 @@ public class DatabaseService : IDatabaseService
         return events;
     }
 
+    public async Task<List<CodeReplacementEvent>> GetAllReplacementEvents(Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(@"
+            SELECT id, repository_id, file_id, original_commit_id, replacement_commit_id,
+                   original_author_name, replacement_author_name, semantic_dissimilarity,
+                   time_proximity_days, churn_magnitude, commit_message_signal, event_score, created_at
+            FROM code_replacement_events
+            WHERE repository_id = @repoId
+            ORDER BY created_at DESC",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+
+        var events = new List<CodeReplacementEvent>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            events.Add(new CodeReplacementEvent
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                FileId = reader.GetGuid(2),
+                OriginalCommitId = reader.GetGuid(3),
+                ReplacementCommitId = reader.GetGuid(4),
+                OriginalAuthorName = reader.GetString(5),
+                ReplacementAuthorName = reader.GetString(6),
+                SemanticDissimilarity = reader.GetDouble(7),
+                TimeProximityDays = reader.GetInt32(8),
+                ChurnMagnitude = reader.GetInt32(9),
+                CommitMessageSignal = reader.GetDouble(10),
+                EventScore = reader.GetDouble(11),
+                CreatedAt = reader.GetDateTime(12)
+            });
+        }
+        return events;
+    }
+
     public async Task UpsertContributorNegativeScore(ContributorNegativeScore score)
     {
         await using var conn = await _dataSource.OpenConnectionAsync();

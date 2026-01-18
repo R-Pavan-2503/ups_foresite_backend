@@ -26,29 +26,85 @@ public class NegativeScoreController : ControllerBase
     }
 
     /// <summary>
-    /// Get all contributor negative scores for a repository.
+    /// Get all contributor negative scores for a repository, filtered by timeline.
     /// </summary>
     [HttpGet]
-    public async Task<IActionResult> GetNegativeScores(Guid repositoryId)
+    public async Task<IActionResult> GetNegativeScores(
+        Guid repositoryId, 
+        [FromQuery] int timelineDays = 0)  // 0 = Lifetime (all time), 7 = Past 7 Days, 30 = Past 30 Days
     {
         try
         {
-            var scores = await _negativeScoreService.GetScoresForRepository(repositoryId);
+            // Validate timelineDays - allow 0 (Lifetime), 7, or 30
+            if (timelineDays != 0 && timelineDays != 7 && timelineDays != 30)
+            {
+                timelineDays = 0;  // Default to lifetime if invalid
+            }
+
+            // Get all replacement events for this repository
+            var allEvents = await _db.GetAllReplacementEvents(repositoryId);
+            
+            // Calculate the cutoff date based on timeline selection
+            var cutoffDate = timelineDays == 0 
+                ? DateTime.MinValue 
+                : DateTime.UtcNow.AddDays(-timelineDays);
+            
+            // Get all commits to look up replacement commit dates
+            var commits = await _db.GetCommitsByRepository(repositoryId);
+            var commitDates = commits.ToDictionary(c => c.Id, c => c.CommittedAt);
+            
+            // Filter events by when the REPLACEMENT actually happened (not when detected)
+            var filteredEvents = allEvents.Where(e => 
+            {
+                if (commitDates.TryGetValue(e.ReplacementCommitId, out var commitDate))
+                {
+                    return commitDate >= cutoffDate;
+                }
+                return false; // Skip if we can't find the commit date
+            }).ToList();
+            
+            // Get ALL-TIME commit counts for normalization (use full history, not filtered)
+            // This ensures consistent normalization regardless of timeline filter
+            var authorCommitCounts = commits
+                .GroupBy(c => c.AuthorName ?? "Unknown")
+                .ToDictionary(g => g.Key, g => g.Count());
+            
+            // Group events by original author
+            var eventsByAuthor = filteredEvents
+                .GroupBy(e => e.OriginalAuthorName)
+                .ToDictionary(g => g.Key, g => g.ToList());
+            
+            // Include ALL contributors who have commits, not just those with events
+            var scoresByAuthor = authorCommitCounts.Keys
+                .Select(author =>
+                {
+                    var events = eventsByAuthor.GetValueOrDefault(author, new List<CodeReplacementEvent>());
+                    var rawScore = events.Sum(e => e.EventScore);
+                    var totalCommits = authorCommitCounts.GetValueOrDefault(author, 1);
+                    var normalizedScore = rawScore / Math.Max(1, totalCommits / 10.0);
+                    
+                    return new
+                    {
+                        contributorName = author,
+                        normalizedScore = Math.Round(normalizedScore, 3),
+                        rawScore = Math.Round(rawScore, 3),
+                        totalCommits = totalCommits,
+                        eventCount = events.Count,
+                        lastCalculatedAt = DateTime.UtcNow,
+                        level = GetScoreLevel(normalizedScore)
+                    };
+                })
+                .OrderByDescending(s => s.normalizedScore)
+                .ToList();
+
             return Ok(new
             {
                 repositoryId,
-                scoredContributors = scores.Count,
-                scores = scores.Select(s => new
-                {
-                    contributorName = s.ContributorName,
-                    normalizedScore = Math.Round(s.NormalizedScore, 3),
-                    rawScore = Math.Round(s.RawScore, 3),
-                    totalCommits = s.TotalCommits,
-                    eventCount = s.EventCount,
-                    lastCalculatedAt = s.LastCalculatedAt,
-                    // Score interpretation
-                    level = GetScoreLevel(s.NormalizedScore)
-                })
+                timelineDays,
+                timelineLabel = timelineDays == 0 ? "All Time" : $"Past {timelineDays} Days",
+                scoredContributors = scoresByAuthor.Count,
+                totalEvents = filteredEvents.Count,
+                scores = scoresByAuthor
             });
         }
         catch (Exception ex)
