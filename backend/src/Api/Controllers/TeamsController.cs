@@ -373,30 +373,32 @@ public class TeamsController : ControllerBase
         List<TeamMember> members)
     {
         var memberUserIds = members.Select(m => m.UserId).ToList();
+        
+        // PRE-FETCH: Get all users for team members in ONE batch query
+        var teamUsers = await _db.GetUsersByIds(memberUserIds);
+        var userMap = teamUsers.ToDictionary(u => u.Id, u => u);
+        var teamAuthorNames = teamUsers.Select(u => u.AuthorName).Where(n => !string.IsNullOrEmpty(n)).ToHashSet();
+        
         var commits = await _db.GetCommitsByRepository(repositoryId);
         
-        // Filter commits by team members
+        // Filter commits by team member author names (fast HashSet lookup)
         var teamCommits = commits.Where(c => 
             !string.IsNullOrEmpty(c.AuthorName) && 
-            memberUserIds.Any(uid => 
-            {
-                var user = _db.GetUserById(uid).Result;
-                return user?.AuthorName == c.AuthorName;
-            })
+            teamAuthorNames.Contains(c.AuthorName)
         ).ToList();
 
         // Get all commit IDs for file changes
         var commitIds = teamCommits.Select(c => c.Id).ToList();
         var fileChangesDict = await _db.GetFileChangesByCommitIds(commitIds);
 
-        // Calculate member contributions
+        // Calculate member contributions using pre-fetched user data
         var memberContributions = new List<MemberContributionDto>();
         var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
 
         foreach (var member in members)
         {
-            var user = await _db.GetUserById(member.UserId);
-            if (user == null) continue;
+            // Use pre-fetched user map instead of database call
+            if (!userMap.TryGetValue(member.UserId, out var user)) continue;
 
             var memberCommits = teamCommits.Where(c => c.AuthorName == user.AuthorName).ToList();
             var memberCommitIds = memberCommits.Select(c => c.Id).ToList();

@@ -14,6 +14,7 @@ public interface IDatabaseService
     Task UpdateUserAuthorName(Guid userId, string authorName);
     Task UpdateUserAvatar(Guid userId, string avatarUrl);
     Task<List<User>> GetUsersByAuthorNames(List<string> authorNames); // BATCH: Get multiple users at once
+    Task<List<User>> GetUsersByIds(List<Guid> userIds); // BATCH: Get multiple users by IDs
     Task<List<User>> GetUsersWithRepositoryAccess(Guid repositoryId); // Get all users who have access to a repository
     Task<List<User>> GetAllUsers(); // Get all users in the system
 
@@ -173,4 +174,14 @@ public interface IDatabaseService
     Task UpdateTeamMemberRole(Guid memberId, string role);
     Task RemoveTeamMember(Guid memberId);
     Task<bool> IsUserInTeam(Guid userId, Guid teamId);
+
+    // ============================================
+    // CONTRIBUTOR NEGATIVE SCORES
+    // ============================================
+    
+    Task CreateCodeReplacementEvent(CodeReplacementEvent evt);
+    Task<List<CodeReplacementEvent>> GetReplacementEventsByContributor(Guid repositoryId, string contributorName);
+    Task UpsertContributorNegativeScore(ContributorNegativeScore score);
+    Task<List<ContributorNegativeScore>> GetNegativeScoresByRepository(Guid repositoryId);
+    Task DeleteNegativeScoreData(Guid repositoryId); // For recalculation
 }

@@ -116,6 +116,35 @@ public class DatabaseService : IDatabaseService
         return users;
     }
 
+    // BATCH: Get multiple users at once by IDs
+    public async Task<List<User>> GetUsersByIds(List<Guid> userIds)
+    {
+        if (userIds == null || !userIds.Any()) return new List<User>();
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, github_id, author_name, email, avatar_url FROM users WHERE id = ANY(@ids)",
+            conn);
+
+        cmd.Parameters.AddWithValue("ids", userIds.ToArray());
+
+        var users = new List<User>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            users.Add(new User
+            {
+                Id = reader.GetGuid(0),
+                GithubId = reader.GetInt64(1),
+                AuthorName = reader.GetString(2),
+                Email = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AvatarUrl = reader.IsDBNull(4) ? null : reader.GetString(4)
+            });
+        }
+        return users;
+    }
+
     // Get all users who have access to a repository
     public async Task<List<User>> GetUsersWithRepositoryAccess(Guid repositoryId)
     {
@@ -2522,6 +2551,158 @@ public class DatabaseService : IDatabaseService
         cmd.Parameters.AddWithValue("teamId", teamId);
         var result = await cmd.ExecuteScalarAsync();
         return (bool?)result ?? false;
+    }
+
+    // ============================================
+    // CONTRIBUTOR NEGATIVE SCORES
+    // ============================================
+
+    public async Task CreateCodeReplacementEvent(CodeReplacementEvent evt)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(@"
+            INSERT INTO code_replacement_events 
+                (repository_id, file_id, original_commit_id, replacement_commit_id, 
+                 original_author_name, replacement_author_name, semantic_dissimilarity,
+                 time_proximity_days, churn_magnitude, commit_message_signal, event_score, created_at)
+            VALUES 
+                (@repoId, @fileId, @origCommitId, @replCommitId, 
+                 @origAuthor, @replAuthor, @dissimilarity,
+                 @days, @churn, @signal, @score, @createdAt)",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", evt.RepositoryId);
+        cmd.Parameters.AddWithValue("fileId", evt.FileId);
+        cmd.Parameters.AddWithValue("origCommitId", evt.OriginalCommitId);
+        cmd.Parameters.AddWithValue("replCommitId", evt.ReplacementCommitId);
+        cmd.Parameters.AddWithValue("origAuthor", evt.OriginalAuthorName);
+        cmd.Parameters.AddWithValue("replAuthor", evt.ReplacementAuthorName);
+        cmd.Parameters.AddWithValue("dissimilarity", evt.SemanticDissimilarity);
+        cmd.Parameters.AddWithValue("days", evt.TimeProximityDays);
+        cmd.Parameters.AddWithValue("churn", evt.ChurnMagnitude);
+        cmd.Parameters.AddWithValue("signal", evt.CommitMessageSignal);
+        cmd.Parameters.AddWithValue("score", evt.EventScore);
+        cmd.Parameters.AddWithValue("createdAt", evt.CreatedAt);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<CodeReplacementEvent>> GetReplacementEventsByContributor(Guid repositoryId, string contributorName)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(@"
+            SELECT id, repository_id, file_id, original_commit_id, replacement_commit_id,
+                   original_author_name, replacement_author_name, semantic_dissimilarity,
+                   time_proximity_days, churn_magnitude, commit_message_signal, event_score, created_at
+            FROM code_replacement_events
+            WHERE repository_id = @repoId AND original_author_name = @author
+            ORDER BY created_at DESC",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+        cmd.Parameters.AddWithValue("author", contributorName);
+
+        var events = new List<CodeReplacementEvent>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            events.Add(new CodeReplacementEvent
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                FileId = reader.GetGuid(2),
+                OriginalCommitId = reader.GetGuid(3),
+                ReplacementCommitId = reader.GetGuid(4),
+                OriginalAuthorName = reader.GetString(5),
+                ReplacementAuthorName = reader.GetString(6),
+                SemanticDissimilarity = reader.GetDouble(7),
+                TimeProximityDays = reader.GetInt32(8),
+                ChurnMagnitude = reader.GetInt32(9),
+                CommitMessageSignal = reader.GetDouble(10),
+                EventScore = reader.GetDouble(11),
+                CreatedAt = reader.GetDateTime(12)
+            });
+        }
+        return events;
+    }
+
+    public async Task UpsertContributorNegativeScore(ContributorNegativeScore score)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(@"
+            INSERT INTO contributor_negative_scores 
+                (repository_id, contributor_name, raw_score, normalized_score, total_commits, event_count, last_calculated_at)
+            VALUES 
+                (@repoId, @name, @raw, @normalized, @commits, @events, @lastCalc)
+            ON CONFLICT (repository_id, contributor_name) 
+            DO UPDATE SET 
+                raw_score = @raw, 
+                normalized_score = @normalized, 
+                total_commits = @commits,
+                event_count = @events, 
+                last_calculated_at = @lastCalc",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", score.RepositoryId);
+        cmd.Parameters.AddWithValue("name", score.ContributorName);
+        cmd.Parameters.AddWithValue("raw", score.RawScore);
+        cmd.Parameters.AddWithValue("normalized", score.NormalizedScore);
+        cmd.Parameters.AddWithValue("commits", score.TotalCommits);
+        cmd.Parameters.AddWithValue("events", score.EventCount);
+        cmd.Parameters.AddWithValue("lastCalc", (object?)score.LastCalculatedAt ?? DBNull.Value);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<ContributorNegativeScore>> GetNegativeScoresByRepository(Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(@"
+            SELECT id, repository_id, contributor_name, raw_score, normalized_score, 
+                   total_commits, event_count, last_calculated_at
+            FROM contributor_negative_scores
+            WHERE repository_id = @repoId
+            ORDER BY normalized_score DESC",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+
+        var scores = new List<ContributorNegativeScore>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            scores.Add(new ContributorNegativeScore
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                ContributorName = reader.GetString(2),
+                RawScore = reader.GetDouble(3),
+                NormalizedScore = reader.GetDouble(4),
+                TotalCommits = reader.GetInt32(5),
+                EventCount = reader.GetInt32(6),
+                LastCalculatedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7)
+            });
+        }
+        return scores;
+    }
+
+    public async Task DeleteNegativeScoreData(Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        
+        // Delete events first (due to potential future FK)
+        using var cmd1 = new NpgsqlCommand(
+            "DELETE FROM code_replacement_events WHERE repository_id = @repoId",
+            conn);
+        cmd1.Parameters.AddWithValue("repoId", repositoryId);
+        await cmd1.ExecuteNonQueryAsync();
+
+        // Delete scores
+        using var cmd2 = new NpgsqlCommand(
+            "DELETE FROM contributor_negative_scores WHERE repository_id = @repoId",
+            conn);
+        cmd2.Parameters.AddWithValue("repoId", repositoryId);
+        await cmd2.ExecuteNonQueryAsync();
     }
 }
 

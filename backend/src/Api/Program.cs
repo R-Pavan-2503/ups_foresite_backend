@@ -102,6 +102,9 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<INotesService, NotesService>();
 builder.Services.AddScoped<ILineCommentsService, LineCommentsService>();
 
+// Contributor Negative Score Service
+builder.Services.AddScoped<INegativeScoreService, NegativeScoreService>();
+
 // Register background workers
 // builder.Services.AddHostedService<IncrementalWorker>(); // Disabled: Not using webhooks
 
