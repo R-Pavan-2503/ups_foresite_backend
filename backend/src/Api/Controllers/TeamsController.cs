@@ -413,6 +413,7 @@ public class TeamsController : ControllerBase
             // Use pre-fetched user map instead of database call
             if (!userMap.TryGetValue(member.UserId, out var user)) continue;
 
+            // Timeline-filtered commits for stats
             var memberCommits = teamCommits.Where(c => c.AuthorName == user.AuthorName).ToList();
             var memberCommitIds = memberCommits.Select(c => c.Id).ToList();
 
@@ -432,7 +433,13 @@ public class TeamsController : ControllerBase
                 }
             }
 
-            var lastCommit = memberCommits.OrderByDescending(c => c.CommittedAt).FirstOrDefault();
+            // Get ALL-TIME last commit for this user (not filtered by timeline)
+            // This ensures we always show when they last committed, even if outside current timeline
+            var allTimeUserCommits = commits.Where(c => c.AuthorName == user.AuthorName).ToList();
+            var lastCommitAllTime = allTimeUserCommits.OrderByDescending(c => c.CommittedAt).FirstOrDefault();
+            
+            // Last commit within timeline (for determining active status)
+            var lastCommitInTimeline = memberCommits.OrderByDescending(c => c.CommittedAt).FirstOrDefault();
 
             memberContributions.Add(new MemberContributionDto
             {
@@ -444,8 +451,10 @@ public class TeamsController : ControllerBase
                 LinesAdded = linesAdded,
                 LinesRemoved = linesRemoved,
                 FilesChanged = filesChanged.Count,
-                LastCommitDate = lastCommit?.CommittedAt,
-                IsActive = lastCommit != null && lastCommit.CommittedAt >= cutoffDate
+                // Always show ALL-TIME last commit date so inactive users see when they last worked
+                LastCommitDate = lastCommitAllTime?.CommittedAt,
+                // IsActive is based on whether they have commits within the selected timeline
+                IsActive = lastCommitInTimeline != null
             });
         }
 

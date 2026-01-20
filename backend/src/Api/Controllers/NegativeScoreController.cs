@@ -118,11 +118,40 @@ public class NegativeScoreController : ControllerBase
     /// Get detailed replacement events for a specific contributor.
     /// </summary>
     [HttpGet("{contributorName}/events")]
-    public async Task<IActionResult> GetContributorEvents(Guid repositoryId, string contributorName)
+    public async Task<IActionResult> GetContributorEvents(
+        Guid repositoryId, 
+        string contributorName,
+        [FromQuery] int timelineDays = 0)  // 0 = Lifetime (all time), 7 = Past 7 Days, 30 = Past 30 Days
     {
         try
         {
+            // Validate timelineDays - allow 0 (Lifetime), 7, or 30
+            if (timelineDays != 0 && timelineDays != 7 && timelineDays != 30)
+            {
+                timelineDays = 0;  // Default to lifetime if invalid
+            }
+
             var events = await _negativeScoreService.GetEventsForContributor(repositoryId, contributorName);
+            
+            // If timeline filtering is needed, filter events
+            if (timelineDays > 0)
+            {
+                var cutoffDate = DateTime.UtcNow.AddDays(-timelineDays);
+                
+                // Get commits to look up replacement commit dates
+                var commits = await _db.GetCommitsByRepository(repositoryId);
+                var commitDates = commits.ToDictionary(c => c.Id, c => c.CommittedAt);
+                
+                // Filter events by when the REPLACEMENT actually happened
+                events = events.Where(e => 
+                {
+                    if (commitDates.TryGetValue(e.ReplacementCommitId, out var commitDate))
+                    {
+                        return commitDate >= cutoffDate;
+                    }
+                    return false;
+                }).ToList();
+            }
             
             // Get file paths for the events
             var fileIds = events.Select(e => e.FileId).Distinct().ToList();
@@ -132,6 +161,8 @@ public class NegativeScoreController : ControllerBase
             return Ok(new
             {
                 contributorName,
+                timelineDays,
+                timelineLabel = timelineDays == 0 ? "All Time" : $"Past {timelineDays} Days",
                 eventCount = events.Count,
                 events = events.Select(e => new
                 {
