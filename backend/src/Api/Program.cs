@@ -13,6 +13,12 @@ if (File.Exists(envPath))
 {
     DotNetEnv.Env.Load(envPath);
     Console.WriteLine("✓ Loaded .env file");
+    
+    // Debug: Check if ADO variables are loaded
+    var adoOrgUrl = Environment.GetEnvironmentVariable("AZURE_DEVOPS_ORG_URL");
+    var adoPat = Environment.GetEnvironmentVariable("AZURE_DEVOPS_PAT");
+    Console.WriteLine($"DEBUG (from env): AZURE_DEVOPS_ORG_URL = '{adoOrgUrl}'");
+    Console.WriteLine($"DEBUG (from env): AZURE_DEVOPS_PAT length = {adoPat?.Length ?? 0}");
 }
 else
 {
@@ -21,9 +27,24 @@ else
 
 // Load settings from settings.json in current directory (works in Docker)
 var settingsPath = Path.Combine(Directory.GetCurrentDirectory(), "settings.json");
+Console.WriteLine($"DEBUG: Looking for settings.json at: {settingsPath}");
+Console.WriteLine($"DEBUG: File exists: {File.Exists(settingsPath)}");
 if (File.Exists(settingsPath))
 {
     var jsonContent = File.ReadAllText(settingsPath);
+    Console.WriteLine($"DEBUG: settings.json length: {jsonContent.Length} characters");
+
+    // Debug: Show a snippet of original JSON
+    var adoSection = jsonContent.IndexOf("\"AzureDevOps\"");
+    if (adoSection >= 0)
+    {
+        var snippet = jsonContent.Substring(Math.Max(0, adoSection - 50), Math.Min(200, jsonContent.Length - Math.Max(0, adoSection - 50)));
+        Console.WriteLine($"DEBUG: Original JSON (ADO section): {snippet}");
+    }
+    else
+    {
+        Console.WriteLine("DEBUG: AzureDevOps section NOT FOUND in settings.json!");
+    }
 
     // Replace ${VAR_NAME} with environment variable values
     // Using Regex to find all patterns of ${VAR_NAME}
@@ -32,8 +53,17 @@ if (File.Exists(settingsPath))
     {
         var varName = match.Groups[1].Value;
         var envValue = Environment.GetEnvironmentVariable(varName);
+        Console.WriteLine($"DEBUG: Replacing ${{{varName}}} with '{envValue}'");
         return envValue ?? match.Value; // Return original if not found
     });
+
+    // Debug: Show snippet after substitution
+    adoSection = jsonContent.IndexOf("\"AzureDevOps\"");
+    if (adoSection >= 0)
+    {
+        var snippet = jsonContent.Substring(Math.Max(0, adoSection - 50), Math.Min(200, jsonContent.Length - Math.Max(0, adoSection - 50)));
+        Console.WriteLine($"DEBUG: After substitution (ADO section): {snippet}");
+    }
 
     var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(jsonContent));
     builder.Configuration.AddJsonStream(stream);
@@ -41,6 +71,12 @@ if (File.Exists(settingsPath))
 
 // Configure AppSettings
 builder.Services.Configure<AppSettings>(builder.Configuration);
+
+// Debug: Log Azure DevOps configuration  
+var adoConfigUrl = builder.Configuration["AzureDevOps:OrganizationUrl"];
+var adoConfigPat = builder.Configuration["AzureDevOps:PersonalAccessToken"];
+Console.WriteLine($"DEBUG (from config): Azure DevOps OrganizationUrl = '{adoConfigUrl}'");
+Console.WriteLine($"DEBUG (from config): Azure DevOps PAT length = {adoConfigPat?.Length ?? 0}");
 
 // Add controllers
 builder.Services.AddControllers();
@@ -104,6 +140,9 @@ builder.Services.AddScoped<ILineCommentsService, LineCommentsService>();
 
 // Contributor Negative Score Service
 builder.Services.AddScoped<INegativeScoreService, NegativeScoreService>();
+
+// Azure DevOps Service
+builder.Services.AddSingleton<IAzureDevOpsService, AzureDevOpsService>();
 
 // Register background workers
 // builder.Services.AddHostedService<IncrementalWorker>(); // Disabled: Not using webhooks
