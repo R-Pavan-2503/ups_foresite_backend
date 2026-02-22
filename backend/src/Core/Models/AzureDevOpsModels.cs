@@ -149,3 +149,34 @@ public class WorkItemRelation
     public string? Url { get; set; }
     public Dictionary<string, object>? Attributes { get; set; }
 }
+
+// ============================================
+// DEVELOPER INACTIVITY DETECTION DTOs
+// ============================================
+
+public class DeveloperActivityProfile
+{
+    public string DeveloperName { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
+    public int InactivityScore { get; set; }                        // 0-100
+    public string InactivityLevel { get; set; } = "Active";         // Active, Low Risk, Moderate, At Risk, Inactive
+    public List<AzureDevOpsWorkItem> AssignedItems { get; set; } = new();
+    public int TotalStoryPoints { get; set; }
+    public double EstimatedWorkDaysRemaining { get; set; }
+    public DateTime? LastWorkItemUpdate { get; set; }
+    public int ActiveItemCount { get; set; }
+    public int TotalItemCount { get; set; }
+    public string Reasoning { get; set; } = string.Empty;           // Human-readable explanation
+}
+
+public class DeveloperInactivityReport
+{
+    public string ProjectId { get; set; } = string.Empty;
+    public string ProjectName { get; set; } = string.Empty;
+    public DateTime GeneratedAt { get; set; }
+    public int TotalDevelopers { get; set; }
+    public int ActiveCount { get; set; }
+    public int AtRiskCount { get; set; }
+    public int InactiveCount { get; set; }
+    public List<DeveloperActivityProfile> Developers { get; set; } = new();
+}

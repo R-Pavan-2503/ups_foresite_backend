@@ -431,4 +431,298 @@ public class AzureDevOpsService : IAzureDevOpsService
             .Where(t => !string.IsNullOrWhiteSpace(t))
             .ToList();
     }
+
+    // ============================================
+    // DEVELOPER INACTIVITY DETECTION
+    // ============================================
+
+    public async Task<DeveloperInactivityReport> GetDeveloperInactivityAsync(string projectId)
+    {
+        try
+        {
+            // 1. Fetch all work items for the project (not just active ones — we need the full picture)
+            var allWorkItems = await GetWorkItemsAsync(projectId);
+
+            // 2. Get the project name
+            var projects = await GetProjectsAsync();
+            var project = projects.FirstOrDefault(p => p.Id == projectId || p.Name == projectId);
+            var projectName = project?.Name ?? projectId;
+
+            // 3. Group work items by AssignedTo (developer)
+            var developerGroups = allWorkItems
+                .Where(wi => !string.IsNullOrEmpty(wi.AssignedToDisplayName))
+                .GroupBy(wi => wi.AssignedToDisplayName!)
+                .ToList();
+
+            var profiles = new List<DeveloperActivityProfile>();
+
+            foreach (var group in developerGroups)
+            {
+                var devName = group.Key;
+                var devItems = group.ToList();
+                var avatarUrl = devItems.FirstOrDefault()?.AssignedToAvatarUrl;
+
+                var profile = ComputeInactivityProfile(devName, avatarUrl, devItems);
+                profiles.Add(profile);
+            }
+
+            // Sort by inactivity score (highest = most inactive first)
+            profiles = profiles.OrderByDescending(p => p.InactivityScore).ToList();
+
+            var report = new DeveloperInactivityReport
+            {
+                ProjectId = projectId,
+                ProjectName = projectName,
+                GeneratedAt = DateTime.UtcNow,
+                TotalDevelopers = profiles.Count,
+                ActiveCount = profiles.Count(p => p.InactivityScore <= 20),
+                AtRiskCount = profiles.Count(p => p.InactivityScore >= 61 && p.InactivityScore <= 80),
+                InactiveCount = profiles.Count(p => p.InactivityScore >= 81),
+                Developers = profiles
+            };
+
+            return report;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error computing developer inactivity for project: {projectId}");
+            throw;
+        }
+    }
+
+    private DeveloperActivityProfile ComputeInactivityProfile(
+        string developerName, string? avatarUrl, List<AzureDevOpsWorkItem> assignedItems)
+    {
+        var now = DateTime.UtcNow;
+        var reasons = new List<string>();
+
+        // --- Categorize work items ---
+        var activeStates = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "Active", "In Progress", "Committed", "Doing" };
+        var closedStates = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "Closed", "Done", "Resolved", "Completed", "Removed" };
+        var newStates = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "New", "To Do", "Proposed" };
+
+        var activeItems = assignedItems.Where(wi => activeStates.Contains(wi.State)).ToList();
+        var newItems = assignedItems.Where(wi => newStates.Contains(wi.State)).ToList();
+        var closedItems = assignedItems.Where(wi => closedStates.Contains(wi.State)).ToList();
+        var inProgressItems = activeItems.Concat(newItems).ToList();
+
+        // --- Signal 1: Days since last ADO activity (30% weight) ---
+        var lastUpdate = assignedItems
+            .Select(wi => wi.ChangedDate)
+            .DefaultIfEmpty(DateTime.MinValue)
+            .Max();
+
+        double daysSinceLastUpdate = (now - lastUpdate).TotalDays;
+        double lastUpdateScore;
+
+        if (daysSinceLastUpdate <= 1) lastUpdateScore = 0;
+        else if (daysSinceLastUpdate <= 3) lastUpdateScore = 15;
+        else if (daysSinceLastUpdate <= 7) lastUpdateScore = 35;
+        else if (daysSinceLastUpdate <= 14) lastUpdateScore = 60;
+        else if (daysSinceLastUpdate <= 21) lastUpdateScore = 80;
+        else lastUpdateScore = 100;
+
+        // --- Signal 2: Expected workload duration vs elapsed time (25% weight) ---
+        // Story Points → Expected Work Days (1 SP ≈ 1.5 work days)
+        double totalStoryPoints = 0;
+        double totalEffort = 0;
+
+        foreach (var item in inProgressItems)
+        {
+            if (item.StoryPoints.HasValue && item.StoryPoints.Value > 0)
+            {
+                totalStoryPoints += item.StoryPoints.Value;
+            }
+            else if (item.Effort.HasValue && item.Effort.Value > 0)
+            {
+                totalEffort += item.Effort.Value;
+            }
+            else
+            {
+                // Heuristic fallback: estimate based on child items and type
+                totalStoryPoints += EstimateStoryPoints(item);
+            }
+        }
+
+        // Convert to expected work days
+        double expectedWorkDays = (totalStoryPoints * 1.5) + (totalEffort / 8.0);
+        if (expectedWorkDays < 1 && inProgressItems.Count > 0)
+            expectedWorkDays = inProgressItems.Count * 2; // Default: 2 days per item
+
+        // How long have they been working on current items?
+        var oldestActiveStart = inProgressItems
+            .Select(wi => wi.ActivatedDate ?? wi.StateChangeDate ?? wi.CreatedDate)
+            .DefaultIfEmpty(now)
+            .Min();
+        double daysElapsed = (now - oldestActiveStart).TotalDays;
+
+        // workloadScore: if within expected window → low score; if way past → high score
+        double workloadScore;
+        if (expectedWorkDays <= 0)
+        {
+            workloadScore = inProgressItems.Count == 0 ? 80 : 50; // No items = high inactivity signal
+        }
+        else
+        {
+            double ratio = daysElapsed / expectedWorkDays;
+            if (ratio <= 0.5) workloadScore = 0;        // Well within expected time
+            else if (ratio <= 1.0) workloadScore = 15;   // On track
+            else if (ratio <= 1.5) workloadScore = 40;   // Slightly overdue
+            else if (ratio <= 2.0) workloadScore = 65;   // Overdue
+            else workloadScore = 90;                      // Significantly overdue
+        }
+
+        // --- Signal 3: Work item state currency (20% weight) ---
+        double stateScore;
+        if (activeItems.Count > 0)
+        {
+            stateScore = 0; // Has active/in-progress items — good
+            reasons.Add($"{activeItems.Count} item(s) actively in progress");
+        }
+        else if (newItems.Count > 0)
+        {
+            // Items in New state — how long have they been sitting?
+            var oldestNew = newItems.Min(wi => wi.CreatedDate);
+            double daysInNew = (now - oldestNew).TotalDays;
+
+            if (daysInNew <= 3) stateScore = 20;
+            else if (daysInNew <= 7) stateScore = 45;
+            else if (daysInNew <= 14) stateScore = 70;
+            else stateScore = 90;
+
+            reasons.Add($"{newItems.Count} item(s) stuck in 'New' for {daysInNew:F0} days");
+        }
+        else if (closedItems.Count > 0 && inProgressItems.Count == 0)
+        {
+            // All items closed, nothing active
+            var lastClosed = closedItems.Max(wi => wi.ClosedDate ?? wi.ChangedDate);
+            double daysSinceClosed = (now - lastClosed).TotalDays;
+
+            if (daysSinceClosed <= 3) stateScore = 10;  // Recently completed
+            else if (daysSinceClosed <= 7) stateScore = 40;
+            else stateScore = 70;
+
+            reasons.Add($"All items closed; last closure {daysSinceClosed:F0} days ago — may need new assignments");
+        }
+        else
+        {
+            stateScore = 85;
+            reasons.Add("No active or new work items found");
+        }
+
+        // --- Signal 4: Work item update cadence (15% weight) ---
+        // How many of their items have been updated in the last 7 days?
+        var recentlyUpdated = assignedItems.Count(wi => (now - wi.ChangedDate).TotalDays <= 7);
+        double cadenceRatio = assignedItems.Count > 0
+            ? (double)recentlyUpdated / assignedItems.Count
+            : 0;
+
+        double cadenceScore;
+        if (cadenceRatio >= 0.5) cadenceScore = 0;
+        else if (cadenceRatio >= 0.25) cadenceScore = 30;
+        else if (cadenceRatio > 0) cadenceScore = 60;
+        else cadenceScore = 90;
+
+        // --- Signal 5: Has any assigned items at all? (10% weight) ---
+        double assignmentScore;
+        if (inProgressItems.Count >= 2)
+        {
+            assignmentScore = 0;
+        }
+        else if (inProgressItems.Count == 1)
+        {
+            assignmentScore = 10;
+        }
+        else if (assignedItems.Count > 0)
+        {
+            assignmentScore = 40; // Has items but none in progress
+        }
+        else
+        {
+            assignmentScore = 100; // No items at all
+        }
+
+        // --- Weighted final score ---
+        double rawScore = (lastUpdateScore * 0.30)
+                        + (workloadScore * 0.25)
+                        + (stateScore * 0.20)
+                        + (cadenceScore * 0.15)
+                        + (assignmentScore * 0.10);
+
+        // --- STORY SIZE ADJUSTMENT ---
+        // Large stories get a grace period — reduce score if currently working on big items
+        if (activeItems.Count > 0 && totalStoryPoints >= 8)
+        {
+            // Significant reduction for large stories
+            double sizeReduction = Math.Min(25, totalStoryPoints * 1.5);
+            rawScore = Math.Max(0, rawScore - sizeReduction);
+            reasons.Add($"Working on {totalStoryPoints:F0} story points — large story grace applied");
+        }
+        else if (activeItems.Count > 0 && totalStoryPoints >= 5)
+        {
+            double sizeReduction = Math.Min(15, totalStoryPoints * 1.2);
+            rawScore = Math.Max(0, rawScore - sizeReduction);
+            reasons.Add($"Working on {totalStoryPoints:F0} story points — medium story grace applied");
+        }
+
+        int finalScore = Math.Clamp((int)Math.Round(rawScore), 0, 100);
+
+        // Build reasoning
+        if (daysSinceLastUpdate <= 1)
+            reasons.Insert(0, "Updated work items within the last day");
+        else
+            reasons.Insert(0, $"Last work item update was {daysSinceLastUpdate:F0} days ago");
+
+        if (expectedWorkDays > 0 && activeItems.Count > 0)
+            reasons.Add($"Estimated {expectedWorkDays:F1} work days for current items ({daysElapsed:F0} elapsed)");
+
+        string level = finalScore switch
+        {
+            <= 20 => "Active",
+            <= 40 => "Low Risk",
+            <= 60 => "Moderate",
+            <= 80 => "At Risk",
+            _ => "Inactive"
+        };
+
+        return new DeveloperActivityProfile
+        {
+            DeveloperName = developerName,
+            AvatarUrl = avatarUrl,
+            InactivityScore = finalScore,
+            InactivityLevel = level,
+            AssignedItems = assignedItems,
+            TotalStoryPoints = (int)totalStoryPoints,
+            EstimatedWorkDaysRemaining = Math.Max(0, expectedWorkDays - daysElapsed),
+            LastWorkItemUpdate = lastUpdate == DateTime.MinValue ? null : lastUpdate,
+            ActiveItemCount = activeItems.Count,
+            TotalItemCount = assignedItems.Count,
+            Reasoning = string.Join(". ", reasons) + "."
+        };
+    }
+
+    /// <summary>
+    /// Heuristic to estimate story points when none are set on a work item
+    /// </summary>
+    private double EstimateStoryPoints(AzureDevOpsWorkItem item)
+    {
+        // If it has child work items, it's likely larger
+        if (item.ChildWorkItemsCount >= 5) return 13;
+        if (item.ChildWorkItemsCount >= 3) return 8;
+        if (item.ChildWorkItemsCount >= 1) return 5;
+
+        // Estimate by type
+        var type = item.WorkItemType?.ToLowerInvariant() ?? "";
+        if (type.Contains("epic")) return 13;
+        if (type.Contains("feature")) return 8;
+        if (type.Contains("bug")) return 3;
+        if (type.Contains("task")) return 2;
+
+        // Default: medium
+        return 3;
+    }
 }
+
