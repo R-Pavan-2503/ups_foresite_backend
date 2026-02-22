@@ -86,4 +86,19 @@ public class AzureDevOpsController : ControllerBase
             return StatusCode(500, new { error = $"Failed to fetch work item {id}", details = ex.Message });
         }
     }
+
+    [HttpGet("projects/{projectId}/developer-inactivity")]
+    public async Task<IActionResult> GetDeveloperInactivity(string projectId)
+    {
+        try
+        {
+            var report = await _adoService.GetDeveloperInactivityAsync(projectId);
+            return Ok(report);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error getting developer inactivity for project: {projectId}");
+            return StatusCode(500, new { error = $"Failed to compute developer inactivity for project {projectId}", details = ex.Message });
+        }
+    }
 }
