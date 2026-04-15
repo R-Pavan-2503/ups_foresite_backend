@@ -36,7 +36,7 @@
         "BotToken": "${SLACK_BOT_TOKEN}"
     },
     "Sidecar": {
-        "Url": "http://localhost:3002"
+        "Url": "${SIDECAR_URL}"
     },
     "AzureDevOps": {
         "OrganizationUrl": "${AZURE_DEVOPS_ORG_URL}",
