@@ -130,6 +130,32 @@ public class GitHubService : IGitHubService
         return await _client.Repository.Get(owner, repo);
     }
 
+    public async Task<string?> GetRepositoryOwnerUsername(string owner, string repo, string? accessToken = null)
+    {
+        try
+        {
+            GitHubClient client;
+            if (!string.IsNullOrEmpty(accessToken))
+            {
+                client = new GitHubClient(new ProductHeaderValue("CodeFamily"))
+                {
+                    Credentials = new Credentials(accessToken)
+                };
+            }
+            else
+            {
+                client = _client; // Use unauthenticated client
+            }
+            
+            var repository = await client.Repository.Get(owner, repo);
+            return repository.Owner.Login;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     // Commits
     public async Task<IReadOnlyList<GitHubCommit>> GetCommits(string owner, string repo)
     {

@@ -8,6 +8,7 @@ public class AppSettings
     public SupabaseSettings Supabase { get; set; } = new();
     public SlackSettings Slack { get; set; } = new();
     public SidecarSettings Sidecar { get; set; } = new();
+    public AzureDevOpsSettings AzureDevOps { get; set; } = new();
     public string WebhookUrl { get; set; } = string.Empty;
     public string CloneBasePath { get; set; } = "./repos";
 }
@@ -49,4 +50,10 @@ public class GroqSettings
     public string Model { get; set; } = "llama-3.3-70b-versatile";
     public int MaxTokens { get; set; } = 300;
     public double Temperature { get; set; } = 0.3;
+}
+
+public class AzureDevOpsSettings
+{
+    public string OrganizationUrl { get; set; } = string.Empty;
+    public string PersonalAccessToken { get; set; } = string.Empty;
 }

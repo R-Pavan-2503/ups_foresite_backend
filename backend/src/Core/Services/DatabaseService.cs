@@ -116,6 +116,91 @@ public class DatabaseService : IDatabaseService
         return users;
     }
 
+    // BATCH: Get multiple users at once by IDs
+    public async Task<List<User>> GetUsersByIds(List<Guid> userIds)
+    {
+        if (userIds == null || !userIds.Any()) return new List<User>();
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, github_id, author_name, email, avatar_url FROM users WHERE id = ANY(@ids)",
+            conn);
+
+        cmd.Parameters.AddWithValue("ids", userIds.ToArray());
+
+        var users = new List<User>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            users.Add(new User
+            {
+                Id = reader.GetGuid(0),
+                GithubId = reader.GetInt64(1),
+                AuthorName = reader.GetString(2),
+                Email = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AvatarUrl = reader.IsDBNull(4) ? null : reader.GetString(4)
+            });
+        }
+        return users;
+    }
+
+    // Get all users who have access to a repository
+    public async Task<List<User>> GetUsersWithRepositoryAccess(Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            @"SELECT DISTINCT u.id, u.github_id, u.author_name, u.email, u.avatar_url 
+              FROM users u
+              INNER JOIN repository_user_access rua ON u.id = rua.user_id
+              WHERE rua.repository_id = @repositoryId
+              ORDER BY u.author_name",
+            conn);
+
+        cmd.Parameters.AddWithValue("repositoryId", repositoryId);
+
+        var users = new List<User>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            users.Add(new User
+            {
+                Id = reader.GetGuid(0),
+                GithubId = reader.GetInt64(1),
+                AuthorName = reader.GetString(2),
+                Email = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AvatarUrl = reader.IsDBNull(4) ? null : reader.GetString(4)
+            });
+        }
+        return users;
+    }
+
+    // Get all users in the system
+    public async Task<List<User>> GetAllUsers()
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+
+        using var cmd = new NpgsqlCommand(
+            "SELECT id, github_id, author_name, email, avatar_url FROM users ORDER BY author_name",
+            conn);
+
+        var users = new List<User>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            users.Add(new User
+            {
+                Id = reader.GetGuid(0),
+                GithubId = reader.GetInt64(1),
+                AuthorName = reader.GetString(2),
+                Email = reader.IsDBNull(3) ? null : reader.GetString(3),
+                AvatarUrl = reader.IsDBNull(4) ? null : reader.GetString(4)
+            });
+        }
+        return users;
+    }
+
 
     public async Task<User> CreateUser(User user)
     {
@@ -2170,6 +2255,492 @@ public class DatabaseService : IDatabaseService
         cmd.Parameters.AddWithValue("githubUserId", (object?)user?.GithubId ?? DBNull.Value);
         var result = await cmd.ExecuteScalarAsync();
         return (bool?)result ?? false;
+    }
+
+    // ============================================
+    // TEAMS & RBAC
+    // ============================================
+    
+    // Repo Admins
+    public async Task<bool> IsRepoAdmin(Guid userId, Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            "SELECT EXISTS(SELECT 1 FROM repo_admins WHERE user_id = @userId AND repository_id = @repositoryId)",
+            conn);
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("repositoryId", repositoryId);
+        var result = await cmd.ExecuteScalarAsync();
+        return (bool?)result ?? false;
+    }
+
+    public async Task<List<RepoAdmin>> GetRepoAdmins(Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            @"SELECT id, repository_id, user_id, assigned_by_user_id, created_at
+              FROM repo_admins
+              WHERE repository_id = @repositoryId
+              ORDER BY created_at ASC",
+            conn);
+        cmd.Parameters.AddWithValue("repositoryId", repositoryId);
+
+        var admins = new List<RepoAdmin>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            admins.Add(new RepoAdmin
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                UserId = reader.GetGuid(2),
+                AssignedByUserId = reader.IsDBNull(3) ? null : reader.GetGuid(3),
+                CreatedAt = reader.GetDateTime(4)
+            });
+        }
+        return admins;
+    }
+
+    public async Task<RepoAdmin> CreateRepoAdmin(Guid repositoryId, Guid userId, Guid? assignedByUserId = null)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            @"INSERT INTO repo_admins (repository_id, user_id, assigned_by_user_id, created_at)
+              VALUES (@repositoryId, @userId, @assignedByUserId, NOW())
+              RETURNING id, repository_id, user_id, assigned_by_user_id, created_at",
+            conn);
+        cmd.Parameters.AddWithValue("repositoryId", repositoryId);
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("assignedByUserId", (object?)assignedByUserId ?? DBNull.Value);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        return new RepoAdmin
+        {
+            Id = reader.GetGuid(0),
+            RepositoryId = reader.GetGuid(1),
+            UserId = reader.GetGuid(2),
+            AssignedByUserId = reader.IsDBNull(3) ? null : reader.GetGuid(3),
+            CreatedAt = reader.GetDateTime(4)
+        };
+    }
+
+    public async Task DeleteRepoAdmin(Guid repoAdminId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            "DELETE FROM repo_admins WHERE id = @id",
+            conn);
+        cmd.Parameters.AddWithValue("id", repoAdminId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // Teams
+    public async Task<Team> CreateTeam(Team team)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            @"INSERT INTO teams (name, repository_id, created_by_user_id, created_at, updated_at)
+              VALUES (@name, @repositoryId, @createdByUserId, NOW(), NOW())
+              RETURNING id, name, repository_id, created_by_user_id, created_at, updated_at",
+            conn);
+        cmd.Parameters.AddWithValue("name", team.Name);
+        cmd.Parameters.AddWithValue("repositoryId", team.RepositoryId);
+        cmd.Parameters.AddWithValue("createdByUserId", (object?)team.CreatedByUserId ?? DBNull.Value);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        return new Team
+        {
+            Id = reader.GetGuid(0),
+            Name = reader.GetString(1),
+            RepositoryId = reader.GetGuid(2),
+            CreatedByUserId = reader.IsDBNull(3) ? null : reader.GetGuid(3),
+            CreatedAt = reader.GetDateTime(4),
+            UpdatedAt = reader.GetDateTime(5)
+        };
+    }
+
+    public async Task<List<Team>> GetTeamsByRepository(Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            @"SELECT id, name, repository_id, created_by_user_id, created_at, updated_at
+              FROM teams
+              WHERE repository_id = @repositoryId
+              ORDER BY created_at ASC",
+            conn);
+        cmd.Parameters.AddWithValue("repositoryId", repositoryId);
+
+        var teams = new List<Team>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            teams.Add(new Team
+            {
+                Id = reader.GetGuid(0),
+                Name = reader.GetString(1),
+                RepositoryId = reader.GetGuid(2),
+                CreatedByUserId = reader.IsDBNull(3) ? null : reader.GetGuid(3),
+                CreatedAt = reader.GetDateTime(4),
+                UpdatedAt = reader.GetDateTime(5)
+            });
+        }
+        return teams;
+    }
+
+    public async Task<Team?> GetTeamById(Guid teamId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            @"SELECT id, name, repository_id, created_by_user_id, created_at, updated_at
+              FROM teams
+              WHERE id = @teamId",
+            conn);
+        cmd.Parameters.AddWithValue("teamId", teamId);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new Team
+            {
+                Id = reader.GetGuid(0),
+                Name = reader.GetString(1),
+                RepositoryId = reader.GetGuid(2),
+                CreatedByUserId = reader.IsDBNull(3) ? null : reader.GetGuid(3),
+                CreatedAt = reader.GetDateTime(4),
+                UpdatedAt = reader.GetDateTime(5)
+            };
+        }
+        return null;
+    }
+
+    public async Task UpdateTeamName(Guid teamId, string name)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            "UPDATE teams SET name = @name, updated_at = NOW() WHERE id = @teamId",
+            conn);
+        cmd.Parameters.AddWithValue("name", name);
+        cmd.Parameters.AddWithValue("teamId", teamId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task DeleteTeam(Guid teamId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            "DELETE FROM teams WHERE id = @teamId",
+            conn);
+        cmd.Parameters.AddWithValue("teamId", teamId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // Team Members
+    public async Task<TeamMember> AddTeamMember(TeamMember member)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            @"INSERT INTO team_members (team_id, user_id, role, assigned_by_user_id, created_at, updated_at)
+              VALUES (@teamId, @userId, @role, @assignedByUserId, NOW(), NOW())
+              RETURNING id, team_id, user_id, role, assigned_by_user_id, created_at, updated_at",
+            conn);
+        cmd.Parameters.AddWithValue("teamId", member.TeamId);
+        cmd.Parameters.AddWithValue("userId", member.UserId);
+        cmd.Parameters.AddWithValue("role", member.Role);
+        cmd.Parameters.AddWithValue("assignedByUserId", (object?)member.AssignedByUserId ?? DBNull.Value);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        return new TeamMember
+        {
+            Id = reader.GetGuid(0),
+            TeamId = reader.GetGuid(1),
+            UserId = reader.GetGuid(2),
+            Role = reader.GetString(3),
+            AssignedByUserId = reader.IsDBNull(4) ? null : reader.GetGuid(4),
+            CreatedAt = reader.GetDateTime(5),
+            UpdatedAt = reader.GetDateTime(6)
+        };
+    }
+
+    public async Task<List<TeamMember>> GetTeamMembers(Guid teamId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            @"SELECT id, team_id, user_id, role, assigned_by_user_id, created_at, updated_at
+              FROM team_members
+              WHERE team_id = @teamId
+              ORDER BY created_at ASC",
+            conn);
+        cmd.Parameters.AddWithValue("teamId", teamId);
+
+        var members = new List<TeamMember>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            members.Add(new TeamMember
+            {
+                Id = reader.GetGuid(0),
+                TeamId = reader.GetGuid(1),
+                UserId = reader.GetGuid(2),
+                Role = reader.GetString(3),
+                AssignedByUserId = reader.IsDBNull(4) ? null : reader.GetGuid(4),
+                CreatedAt = reader.GetDateTime(5),
+                UpdatedAt = reader.GetDateTime(6)
+            });
+        }
+        return members;
+    }
+
+    public async Task<TeamMember?> GetTeamMember(Guid memberId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            @"SELECT id, team_id, user_id, role, assigned_by_user_id, created_at, updated_at
+              FROM team_members
+              WHERE id = @memberId",
+            conn);
+        cmd.Parameters.AddWithValue("memberId", memberId);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new TeamMember
+            {
+                Id = reader.GetGuid(0),
+                TeamId = reader.GetGuid(1),
+                UserId = reader.GetGuid(2),
+                Role = reader.GetString(3),
+                AssignedByUserId = reader.IsDBNull(4) ? null : reader.GetGuid(4),
+                CreatedAt = reader.GetDateTime(5),
+                UpdatedAt = reader.GetDateTime(6)
+            };
+        }
+        return null;
+    }
+
+    public async Task UpdateTeamMemberRole(Guid memberId, string role)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            "UPDATE team_members SET role = @role, updated_at = NOW() WHERE id = @memberId",
+            conn);
+        cmd.Parameters.AddWithValue("role", role);
+        cmd.Parameters.AddWithValue("memberId", memberId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task RemoveTeamMember(Guid memberId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            "DELETE FROM team_members WHERE id = @memberId",
+            conn);
+        cmd.Parameters.AddWithValue("memberId", memberId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<bool> IsUserInTeam(Guid userId, Guid teamId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(
+            "SELECT EXISTS(SELECT 1 FROM team_members WHERE user_id = @userId AND team_id = @teamId)",
+            conn);
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("teamId", teamId);
+        var result = await cmd.ExecuteScalarAsync();
+        return (bool?)result ?? false;
+    }
+
+    // ============================================
+    // CONTRIBUTOR NEGATIVE SCORES
+    // ============================================
+
+    public async Task CreateCodeReplacementEvent(CodeReplacementEvent evt)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(@"
+            INSERT INTO code_replacement_events 
+                (repository_id, file_id, original_commit_id, replacement_commit_id, 
+                 original_author_name, replacement_author_name, semantic_dissimilarity,
+                 time_proximity_days, churn_magnitude, commit_message_signal, event_score, created_at)
+            VALUES 
+                (@repoId, @fileId, @origCommitId, @replCommitId, 
+                 @origAuthor, @replAuthor, @dissimilarity,
+                 @days, @churn, @signal, @score, @createdAt)",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", evt.RepositoryId);
+        cmd.Parameters.AddWithValue("fileId", evt.FileId);
+        cmd.Parameters.AddWithValue("origCommitId", evt.OriginalCommitId);
+        cmd.Parameters.AddWithValue("replCommitId", evt.ReplacementCommitId);
+        cmd.Parameters.AddWithValue("origAuthor", evt.OriginalAuthorName);
+        cmd.Parameters.AddWithValue("replAuthor", evt.ReplacementAuthorName);
+        cmd.Parameters.AddWithValue("dissimilarity", evt.SemanticDissimilarity);
+        cmd.Parameters.AddWithValue("days", evt.TimeProximityDays);
+        cmd.Parameters.AddWithValue("churn", evt.ChurnMagnitude);
+        cmd.Parameters.AddWithValue("signal", evt.CommitMessageSignal);
+        cmd.Parameters.AddWithValue("score", evt.EventScore);
+        cmd.Parameters.AddWithValue("createdAt", evt.CreatedAt);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<CodeReplacementEvent>> GetReplacementEventsByContributor(Guid repositoryId, string contributorName)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(@"
+            SELECT id, repository_id, file_id, original_commit_id, replacement_commit_id,
+                   original_author_name, replacement_author_name, semantic_dissimilarity,
+                   time_proximity_days, churn_magnitude, commit_message_signal, event_score, created_at
+            FROM code_replacement_events
+            WHERE repository_id = @repoId AND original_author_name = @author
+            ORDER BY created_at DESC",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+        cmd.Parameters.AddWithValue("author", contributorName);
+
+        var events = new List<CodeReplacementEvent>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            events.Add(new CodeReplacementEvent
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                FileId = reader.GetGuid(2),
+                OriginalCommitId = reader.GetGuid(3),
+                ReplacementCommitId = reader.GetGuid(4),
+                OriginalAuthorName = reader.GetString(5),
+                ReplacementAuthorName = reader.GetString(6),
+                SemanticDissimilarity = reader.GetDouble(7),
+                TimeProximityDays = reader.GetInt32(8),
+                ChurnMagnitude = reader.GetInt32(9),
+                CommitMessageSignal = reader.GetDouble(10),
+                EventScore = reader.GetDouble(11),
+                CreatedAt = reader.GetDateTime(12)
+            });
+        }
+        return events;
+    }
+
+    public async Task<List<CodeReplacementEvent>> GetAllReplacementEvents(Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(@"
+            SELECT id, repository_id, file_id, original_commit_id, replacement_commit_id,
+                   original_author_name, replacement_author_name, semantic_dissimilarity,
+                   time_proximity_days, churn_magnitude, commit_message_signal, event_score, created_at
+            FROM code_replacement_events
+            WHERE repository_id = @repoId
+            ORDER BY created_at DESC",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+
+        var events = new List<CodeReplacementEvent>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            events.Add(new CodeReplacementEvent
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                FileId = reader.GetGuid(2),
+                OriginalCommitId = reader.GetGuid(3),
+                ReplacementCommitId = reader.GetGuid(4),
+                OriginalAuthorName = reader.GetString(5),
+                ReplacementAuthorName = reader.GetString(6),
+                SemanticDissimilarity = reader.GetDouble(7),
+                TimeProximityDays = reader.GetInt32(8),
+                ChurnMagnitude = reader.GetInt32(9),
+                CommitMessageSignal = reader.GetDouble(10),
+                EventScore = reader.GetDouble(11),
+                CreatedAt = reader.GetDateTime(12)
+            });
+        }
+        return events;
+    }
+
+    public async Task UpsertContributorNegativeScore(ContributorNegativeScore score)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(@"
+            INSERT INTO contributor_negative_scores 
+                (repository_id, contributor_name, raw_score, normalized_score, total_commits, event_count, last_calculated_at)
+            VALUES 
+                (@repoId, @name, @raw, @normalized, @commits, @events, @lastCalc)
+            ON CONFLICT (repository_id, contributor_name) 
+            DO UPDATE SET 
+                raw_score = @raw, 
+                normalized_score = @normalized, 
+                total_commits = @commits,
+                event_count = @events, 
+                last_calculated_at = @lastCalc",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", score.RepositoryId);
+        cmd.Parameters.AddWithValue("name", score.ContributorName);
+        cmd.Parameters.AddWithValue("raw", score.RawScore);
+        cmd.Parameters.AddWithValue("normalized", score.NormalizedScore);
+        cmd.Parameters.AddWithValue("commits", score.TotalCommits);
+        cmd.Parameters.AddWithValue("events", score.EventCount);
+        cmd.Parameters.AddWithValue("lastCalc", (object?)score.LastCalculatedAt ?? DBNull.Value);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<List<ContributorNegativeScore>> GetNegativeScoresByRepository(Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand(@"
+            SELECT id, repository_id, contributor_name, raw_score, normalized_score, 
+                   total_commits, event_count, last_calculated_at
+            FROM contributor_negative_scores
+            WHERE repository_id = @repoId
+            ORDER BY normalized_score DESC",
+            conn);
+
+        cmd.Parameters.AddWithValue("repoId", repositoryId);
+
+        var scores = new List<ContributorNegativeScore>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            scores.Add(new ContributorNegativeScore
+            {
+                Id = reader.GetGuid(0),
+                RepositoryId = reader.GetGuid(1),
+                ContributorName = reader.GetString(2),
+                RawScore = reader.GetDouble(3),
+                NormalizedScore = reader.GetDouble(4),
+                TotalCommits = reader.GetInt32(5),
+                EventCount = reader.GetInt32(6),
+                LastCalculatedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7)
+            });
+        }
+        return scores;
+    }
+
+    public async Task DeleteNegativeScoreData(Guid repositoryId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        
+        // Delete events first (due to potential future FK)
+        using var cmd1 = new NpgsqlCommand(
+            "DELETE FROM code_replacement_events WHERE repository_id = @repoId",
+            conn);
+        cmd1.Parameters.AddWithValue("repoId", repositoryId);
+        await cmd1.ExecuteNonQueryAsync();
+
+        // Delete scores
+        using var cmd2 = new NpgsqlCommand(
+            "DELETE FROM contributor_negative_scores WHERE repository_id = @repoId",
+            conn);
+        cmd2.Parameters.AddWithValue("repoId", repositoryId);
+        await cmd2.ExecuteNonQueryAsync();
     }
 }
 

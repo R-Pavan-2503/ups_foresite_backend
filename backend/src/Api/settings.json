@@ -38,6 +38,10 @@
     "Sidecar": {
         "Url": "${SIDECAR_URL}"
     },
+    "AzureDevOps": {
+        "OrganizationUrl": "${AZURE_DEVOPS_ORG_URL}",
+        "PersonalAccessToken": "${AZURE_DEVOPS_PAT}"
+    },
     "WebhookUrl": "https://conflagrant-alleen-balletic.ngrok-free.dev",
     "CloneBasePath": "./testdata/repos"
 }

@@ -276,3 +276,37 @@ public class FileBookmark
     public string? Category { get; set; }
     public DateTime CreatedAt { get; set; }
 }
+
+// ============================================
+// RBAC (Role-Based Access Control) MODELS
+// ============================================
+
+public class Team
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public Guid RepositoryId { get; set; }
+    public Guid? CreatedByUserId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class TeamMember
+{
+    public Guid Id { get; set; }
+    public Guid TeamId { get; set; }
+    public Guid UserId { get; set; }
+    public string Role { get; set; } = "contributor"; // "team_leader" or "contributor"
+    public Guid? AssignedByUserId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class RepoAdmin
+{
+    public Guid Id { get; set; }
+    public Guid RepositoryId { get; set; }
+    public Guid UserId { get; set; }
+    public Guid? AssignedByUserId { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
